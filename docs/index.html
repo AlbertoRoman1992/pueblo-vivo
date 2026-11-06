@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pueblo Vivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
+<script src="sim.js"></script>
+<style>
+  :root {
+    --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --accent: #c4552d; --night: #101433;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #1b140f; overflow: hidden; }
+  body { font-family: 'Pixelify Sans', ui-monospace, monospace; color: var(--ink); user-select: none; -webkit-user-select: none; }
+  #stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #wrap { position: relative; }
+  canvas { position: absolute; left: 0; top: 0; }
+  #world { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .pill {
+    position: absolute; background: var(--paper); border: 3px solid var(--ink); border-radius: 10px;
+    box-shadow: 0 4px 0 rgba(0,0,0,.35); padding: .35em .8em; font-size: clamp(14px, 2.2vw, 30px); line-height: 1.15;
+  }
+  #clock { left: 1.2vw; top: 1.6vh; display: flex; gap: .6em; align-items: baseline; }
+  #clock b { font-weight: 600; }
+  #ticker {
+    left: 1.2vw; bottom: 2vh; max-width: 46%;
+    transition: opacity .6s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #powers { position: absolute; right: 1.2vw; bottom: 2vh; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .6vw; max-width: 52%; }
+  #powers button {
+    font: inherit; font-size: clamp(12px, 1.6vw, 24px); background: var(--paper); color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 10px; padding: .25em .6em; box-shadow: 0 4px 0 rgba(0,0,0,.35);
+    cursor: pointer;
+  }
+  #powers button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  #powers button.cool { opacity: .45; }
+  #hint { left: 1.2vw; top: 9.5vh; font-size: clamp(11px, 1.5vw, 20px); background: var(--paper-2); transition: opacity 1s; }
+  #card {
+    position: absolute; left: 1.2vw; top: 17vh; width: min(34vw, 420px); display: none;
+    font-size: clamp(13px, 1.9vw, 26px);
+  }
+  #card h2 { font-size: 1.3em; font-weight: 600; margin-bottom: .2em; }
+  #card .row { opacity: .85; }
+  #card .tag { display: inline-block; background: var(--paper-2); border: 2px solid var(--ink); border-radius: 6px; padding: 0 .35em; margin: .2em .2em 0 0; font-size: .85em; }
+  #toast {
+    position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%); font-size: clamp(14px, 2.4vw, 34px);
+    opacity: 0; transition: opacity .5s; pointer-events: none; text-align: center; max-width: 60%;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="wrap">
+    <canvas id="world"></canvas>
+    <canvas id="ui"></canvas>
+    <div id="clock" class="pill"><b id="c-day">Día 1</b><span id="c-time">07:30</span><span id="c-weather">Sol</span></div>
+    <div id="powers">
+      <button data-p="lluvia">Lluvia</button>
+      <button data-p="sol">Sol</button>
+      <button data-p="fiesta">Fiesta</button>
+      <button data-p="forastero">Forastero</button>
+      <button data-p="bendecir">Bendecir</button>
+      <button id="speed">Velocidad x1</button>
+    </div>
+    <div id="ticker" class="pill">Bienvenido a Pueblo Vivo</div>
+    <div id="hint" class="pill">Di: «Alexa, que llueva» · Toca a un vecino</div>
+    <div id="card" class="pill"></div>
+    <div id="toast" class="pill"></div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  const P = window.PuebloSim, W = P.W, H = P.H;
+  const params = new URLSearchParams(location.search);
+  const BASE_RATE = 1.2;              // minutos de juego por segundo real (1 día = 20 min)
+  const OFFLINE_RATE = 24 / 60;       // minutos de juego por segundo real sin mirar (1 día por hora)
+  const OFFLINE_CAP = 3 * P.DAY;      // máximo 3 días de avance al volver
+  const SPEEDS = [1, 5, 20];
+  let speedIdx = Math.max(0, SPEEDS.indexOf(Number(params.get('speed')) || 1));
+  let S = null, alexa = null, lastSave = 0, scale = 1, selected = null;
+  const cool = {}; // tiempo de espera de cada poder (minutos de juego)
+
+  // ---------- Lienzos ----------
+  const world = document.getElementById('world'), ui = document.getElementById('ui'), wrap = document.getElementById('wrap');
+  world.width = W; world.height = H;
+  const g = world.getContext('2d'), u = ui.getContext('2d');
+  const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+
+  function fit() {
+    scale = Math.min(innerWidth / W, innerHeight / H);
+    const cw = Math.floor(W * scale), ch = Math.floor(H * scale);
+    wrap.style.width = cw + 'px'; wrap.style.height = ch + 'px';
+    [world, ui].forEach(function (c) { c.style.width = cw + 'px'; c.style.height = ch + 'px'; });
+    ui.width = cw * (devicePixelRatio || 1); ui.height = ch * (devicePixelRatio || 1);
+  }
+  addEventListener('resize', fit);
+
+  // ---------- Fondo pixel-art (se pinta una vez) ----------
+  function seeded(seed) { let s = seed >>> 0; return function () { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function rect(c, x, y, w, h, col) { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+
+  function paintBackground() {
+    const c = bg.getContext('2d'), r = seeded(7);
+    rect(c, 0, 0, W, H, '#8aa04a');
+    for (let i = 0; i < 2600; i++) rect(c, r() * W, r() * H, 1, 1, r() < .5 ? '#7d9443' : '#97ad55');
+    // camino principal y caminos a las puertas
+    rect(c, 0, P.ROAD_Y - 6, W, 12, '#c9a46a');
+    for (let i = 0; i < 500; i++) rect(c, r() * W, P.ROAD_Y - 6 + r() * 12, 1, 1, r() < .5 ? '#b8935c' : '#d6b37b');
+    P.BUILDINGS.forEach(function (b) {
+      const y0 = Math.min(b.door.y, P.ROAD_Y), y1 = Math.max(b.door.y, P.ROAD_Y);
+      rect(c, b.door.x - 3, y0, 6, y1 - y0, '#c9a46a');
+    });
+    // huerta
+    const F = P.FIELDS;
+    rect(c, F.x, F.y, F.w, F.h, '#7a5532');
+    for (let y = F.y + 3; y < F.y + F.h - 2; y += 6) {
+      rect(c, F.x + 2, y, F.w - 4, 2, '#5e3f22');
+    }
+    // plaza empedrada
+    const Q = P.PLAZA;
+    rect(c, Q.x, Q.y, Q.w, Q.h, '#d8c7a4');
+    for (let x = Q.x; x < Q.x + Q.w; x += 6) for (let y = Q.y; y < Q.y + Q.h; y += 4)
+      rect(c, x + ((y / 4) % 2 ? 3 : 0), y, 5, 3, r() < .5 ? '#cfbd98' : '#e2d3b2');
+    rect(c, Q.x - 2, Q.y - 2, Q.w + 4, 2, '#a89371'); rect(c, Q.x - 2, Q.y + Q.h, Q.w + 4, 2, '#a89371');
+    // fuente
+    const Fo = P.FOUNTAIN;
+    c.fillStyle = '#9b8c78'; c.beginPath(); c.arc(Fo.x, Fo.y, Fo.r, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#5aa3c9'; c.beginPath(); c.arc(Fo.x, Fo.y, Fo.r - 3, 0, Math.PI * 2); c.fill();
+    rect(c, Fo.x - 2, Fo.y - 7, 4, 8, '#b5a68f');
+    // bancos
+    [[Q.x + 10, Q.y + 8], [Q.x + Q.w - 26, Q.y + 8], [Q.x + 10, Q.y + Q.h - 12], [Q.x + Q.w - 26, Q.y + Q.h - 12]].forEach(function (p) {
+      rect(c, p[0], p[1], 16, 3, '#7a4f2a'); rect(c, p[0] + 1, p[1] + 3, 2, 2, '#4a2f18'); rect(c, p[0] + 13, p[1] + 3, 2, 2, '#4a2f18');
+    });
+    // árboles (olivos y encinas) evitando edificios
+    const blocked = function (x, y) {
+      if (Math.abs(y - P.ROAD_Y) < 14) return true;
+      if (x > Q.x - 8 && x < Q.x + Q.w + 8 && y > Q.y - 10 && y < Q.y + Q.h + 8) return true;
+      if (x > F.x - 8 && y > F.y - 10) return true;
+      return P.BUILDINGS.some(function (b) { return x > b.x - 10 && x < b.x + b.w + 10 && y > b.y - 12 && y < b.y + b.h + 14; });
+    };
+    const trees = [];
+    for (let i = 0; i < 400 && trees.length < 34; i++) {
+      const x = 6 + r() * (W - 12), y = 10 + r() * (H - 16);
+      if (!blocked(x, y) && trees.every(function (t) { return Math.hypot(t[0] - x, t[1] - y) > 16; })) trees.push([x, y]);
+    }
+    trees.sort(function (a, b) { return a[1] - b[1]; }).forEach(function (t) { tree(c, t[0], t[1], r); });
+    P.BUILDINGS.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (b) { house(c, b); });
+  }
+
+  function tree(c, x, y, r) {
+    x = Math.round(x); y = Math.round(y);
+    rect(c, x - 4, y + 3, 9, 2, 'rgba(0,0,0,.18)');
+    rect(c, x - 1, y - 2, 2, 6, '#5b3b22');
+    const greens = r() < .5 ? ['#55733a', '#6a8a45', '#7d9d55'] : ['#4e6b3a', '#5f7f44', '#728f50'];
+    rect(c, x - 5, y - 9, 10, 7, greens[0]); rect(c, x - 4, y - 11, 8, 3, greens[1]); rect(c, x - 3, y - 9, 5, 3, greens[2]);
+  }
+
+  function house(c, b) {
+    const x = b.x, y = b.y, w = b.w, h = b.h;
+    rect(c, x + 2, y + h, w, 3, 'rgba(0,0,0,.2)'); // sombra
+    if (b.type === 'iglesia') {
+      rect(c, x, y + 18, w, h - 18, '#efe6d2'); rect(c, x, y + 18, w, 2, '#d9cdb3');
+      rect(c, x - 2, y + 12, w + 4, 8, '#b3542f'); rect(c, x - 2, y + 12, w + 4, 2, '#cf6a3e');
+      rect(c, x + w / 2 - 8, y - 6, 16, 26, '#e8dcc2'); rect(c, x + w / 2 - 10, y - 10, 20, 6, '#b3542f');
+      rect(c, x + w / 2 - 1, y - 18, 2, 9, '#4a3a2a'); rect(c, x + w / 2 - 3, y - 15, 6, 2, '#4a3a2a');
+      rect(c, x + w / 2 - 3, y, 6, 6, '#3a2a1a'); // campana
+      rect(c, x + w / 2 - 6, y + h - 16, 12, 16, '#6b4126'); rect(c, x + w / 2 - 6, y + h - 16, 12, 3, '#80502f');
+      rect(c, x + 8, y + 28, 5, 9, '#5a7fa0'); rect(c, x + w - 13, y + 28, 5, 9, '#5a7fa0');
+      return;
+    }
+    const wall = b.type === 'bar' ? '#f2e4c4' : b.type === 'panaderia' ? '#f4e9d0' : '#f3ecdc';
+    const roof = b.type === 'casa' ? ['#b85a32', '#d06c3f', '#9c4826'][(b.x + b.y) % 3] : '#a64b2a';
+    rect(c, x, y + 10, w, h - 10, wall); rect(c, x, y + h - 3, w, 3, '#d8cbae');
+    rect(c, x - 2, y, w + 4, 12, roof);
+    for (let i = 0; i < w + 4; i += 4) rect(c, x - 2 + i, y + 2 + ((i / 4) % 2), 3, 1, 'rgba(0,0,0,.18)');
+    rect(c, x - 2, y, w + 4, 2, 'rgba(255,255,255,.18)');
+    rect(c, x + w / 2 - 4, y + h - 12, 8, 12, '#6b4126'); // puerta
+    b.windows = [[x + 4, y + 15], [x + w - 11, y + 15]];
+    b.windows.forEach(function (p) { rect(c, p[0], p[1], 7, 6, '#4d6f8f'); rect(c, p[0], p[1] + 6, 7, 1, '#7a4f2a'); });
+    if (b.type === 'bar' || b.type === 'panaderia') {
+      rect(c, x + 3, y + 11, w - 6, 3, b.type === 'bar' ? '#2f6b3a' : '#c48a2e'); // toldo
+      for (let i = 0; i < w - 6; i += 6) rect(c, x + 3 + i, y + 11, 3, 3, '#f6ead2');
+    }
+    if (b.type === 'casa') rect(c, x + w - 9, y - 4, 4, 6, '#8a7a6a'); // chimenea
+  }
+
+  // ---------- Dibujo por fotograma ----------
+  let rain = [];
+  for (let i = 0; i < 160; i++) rain.push({ x: Math.random() * W, y: Math.random() * H, s: 2 + Math.random() * 2 });
+
+  function drawVillager(v, t) {
+    const x = Math.round(v.x), y = Math.round(v.y), L = v.look;
+    const walking = v.path.length > 0, bob = walking ? Math.floor(t / 150) % 2 : 0;
+    const small = v.age < 14, hh = small ? 7 : 10;
+    rect(g, x - 3, y, 7, 2, 'rgba(0,0,0,.22)');
+    rect(g, x - 2, y - 3 - bob, 2, 3, L.pants); rect(g, x + 1, y - 3 + (walking ? bob - 1 : 0), 2, 3, L.pants);
+    rect(g, x - 3, y - hh + 2, 7, hh - 5, L.shirt);
+    rect(g, x - 2, y - hh - 3, 5, 5, L.skin);
+    rect(g, x - 2, y - hh - 4, 5, 2, L.hair);
+    if (v.sex === 'f' && !small) rect(g, x - 3, y - hh - 3, 1, 5, L.hair), rect(g, x + 3, y - hh - 3, 1, 5, L.hair);
+    if (v.job === 'cura') rect(g, x - 3, y - 3, 7, 3, '#1d1d24');
+    if (selected === v.id) rect(g, x - 1, y - hh - 9 - (Math.floor(t / 300) % 2), 3, 3, '#ffd34d');
+  }
+
+  function nightAlpha(h) {
+    if (h >= 21.5 || h < 5.5) return .62;
+    if (h >= 19) return .62 * (h - 19) / 2.5;
+    if (h < 8) return .62 * (8 - h) / 2.5;
+    return 0;
+  }
+
+  function render(t) {
+    const h = P.hourOf(S), night = nightAlpha(h);
+    g.drawImage(bg, 0, 0);
+    // huerta: brotes según cosecha y bendición
+    const F = P.FIELDS, blessed = S.time < S.blessUntil;
+    for (let y = F.y + 2; y < F.y + F.h - 2; y += 6) for (let x = F.x + 4; x < F.x + F.w - 4; x += 5) {
+      const grown = ((x * 7 + y * 3) % 100) < S.harvest;
+      if (grown) rect(g, x, y, 2, 2, blessed ? (Math.floor(t / 400 + x) % 7 === 0 ? '#fff3a0' : '#d9b84a') : '#7fae45');
+    }
+    // fiesta: guirnaldas
+    if (S.time < S.fiestaUntil) {
+      const Q = P.PLAZA, cols = ['#e84a4a', '#ffd34d', '#4aa3e8', '#5ec46a'];
+      for (let x = Q.x; x < Q.x + Q.w; x += 4) {
+        const sag = Math.round(4 * Math.sin(Math.PI * (x - Q.x) / Q.w));
+        rect(g, x, Q.y - 6 + sag, 2, 2, cols[(x / 4 + Math.floor(t / 300)) % 4 | 0]);
+        rect(g, x, Q.y + Q.h - 4 + sag, 2, 2, cols[(x / 4 + 2 + Math.floor(t / 300)) % 4 | 0]);
+      }
+    }
+    // vecinos (ordenados por profundidad)
+    S.villagers.filter(function (v) { return !v.inside; }).sort(function (a, b) { return a.y - b.y; }).forEach(function (v) { drawVillager(v, t); });
+    // nubes / lluvia
+    if (S.weather !== 'sol') { g.fillStyle = S.weather === 'lluvia' ? 'rgba(40,50,70,.28)' : 'rgba(80,90,110,.12)'; g.fillRect(0, 0, W, H); }
+    if (S.weather === 'lluvia') {
+      g.fillStyle = 'rgba(190,210,240,.75)';
+      rain.forEach(function (d) { d.y += d.s * 2.2; d.x -= d.s * .4; if (d.y > H) { d.y = -4; d.x = Math.random() * W; } if (d.x < 0) d.x = W; g.fillRect(d.x | 0, d.y | 0, 1, 3); });
+    }
+    // noche
+    if (night > 0) {
+      g.fillStyle = 'rgba(16,20,60,' + night + ')'; g.fillRect(0, 0, W, H);
+      // ventanas encendidas donde hay gente despierta
+      P.BUILDINGS.forEach(function (b) {
+        const awake = S.villagers.some(function (v) { return v.inside === b.id && v.act !== 'dormir'; });
+        if (!awake || !b.windows) return;
+        b.windows.forEach(function (p) { rect(g, p[0], p[1], 7, 6, '#ffd77a'); g.fillStyle = 'rgba(255,200,90,.18)'; g.fillRect(p[0] - 4, p[1] - 3, 15, 12); });
+      });
+      // farolas de la plaza
+      const Q = P.PLAZA;
+      [[Q.x, Q.y], [Q.x + Q.w, Q.y], [Q.x, Q.y + Q.h], [Q.x + Q.w, Q.y + Q.h]].forEach(function (p) {
+        g.fillStyle = 'rgba(255,210,120,.22)'; g.beginPath(); g.arc(p[0], p[1], 14, 0, 7); g.fill();
+        rect(g, p[0] - 1, p[1] - 1, 3, 3, '#ffe08a');
+      });
+    }
+    drawUI(t);
+  }
+
+  function drawUI(t) {
+    const k = ui.width / W;
+    u.clearRect(0, 0, ui.width, ui.height);
+    u.font = '600 ' + Math.round(6 * k) + 'px "Pixelify Sans", monospace';
+    u.textAlign = 'center'; u.textBaseline = 'bottom';
+    S.villagers.forEach(function (v) {
+      const sel = selected === v.id;
+      if (!v.bubble && !sel) return;
+      if (v.inside) return;
+      if (v.bubble && v.bubble.delay && S.time < v.bubble.delay && !sel) return;
+      const text = v.bubble && !(v.bubble.delay && S.time < v.bubble.delay) ? v.bubble.text : v.name;
+      const x = v.x * k, y = (v.y - (v.age < 14 ? 13 : 16)) * k;
+      const w = u.measureText(text).width + 6 * k, h = 9 * k;
+      u.fillStyle = sel && !v.bubble ? '#ffd34d' : '#fffaf0'; u.strokeStyle = '#2b1d14'; u.lineWidth = Math.max(1.5, k * .6);
+      roundRect(x - w / 2, y - h, w, h, 2.5 * k); u.fill(); u.stroke();
+      u.beginPath(); u.moveTo(x - 2 * k, y - .3 * k); u.lineTo(x, y + 2.5 * k); u.lineTo(x + 2 * k, y - .3 * k); u.fill();
+      u.fillStyle = '#2b1d14'; u.fillText(text, x, y - 1.8 * k);
+    });
+  }
+  function roundRect(x, y, w, h, r) { u.beginPath(); u.moveTo(x + r, y); u.arcTo(x + w, y, x + w, y + h, r); u.arcTo(x + w, y + h, x, y + h, r); u.arcTo(x, y + h, x, y, r); u.arcTo(x, y, x + w, y, r); u.closePath(); }
+
+  // ---------- Interfaz HTML ----------
+  const $ = function (id) { return document.getElementById(id); };
+  const WEATHER = { sol: 'Sol', nubes: 'Nublado', lluvia: 'Lluvia' };
+  let lastEvent = 0, tickerTimer = 0;
+  function updateHUD() {
+    const c = P.clock(S);
+    $('c-day').textContent = 'Día ' + c.day;
+    $('c-time').textContent = c.weekday + ' ' + c.label;
+    $('c-weather').textContent = (S.time < S.fiestaUntil ? 'Fiestas · ' : '') + WEATHER[S.weather];
+    const ev = S.events[S.events.length - 1];
+    if (ev && ev.t !== lastEvent) { lastEvent = ev.t; showTicker(ev.short); }
+    document.querySelectorAll('#powers button[data-p]').forEach(function (b) { b.classList.toggle('cool', (cool[b.dataset.p] || 0) > S.time); });
+    if (selected) showCard(selected);
+  }
+  function showTicker(text) {
+    const el = $('ticker'); el.style.opacity = 1; el.textContent = text;
+    clearTimeout(tickerTimer); tickerTimer = setTimeout(function () { el.style.opacity = .55; }, 8000);
+  }
+  let toastTimer = 0;
+  function toast(text) {
+    const el = $('toast'); el.textContent = text; el.style.opacity = 1;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.style.opacity = 0; }, 3500);
+  }
+  function showCard(id) {
+    const v = P.byId(S, id); if (!v) return;
+    const s = P.villagerSummary(S, v), el = $('card');
+    el.innerHTML = '<h2>' + s.name + '</h2>' +
+      '<div class="row">' + s.age + ' años · ' + s.job + '</div>' +
+      '<div class="row">Ahora: ' + (v.inside ? s.act + ' (dentro)' : s.act) + ' · ' + s.mood + '</div>' +
+      (s.partner ? '<div class="row">Pareja: ' + s.partner + '</div>' : '') +
+      (s.friend ? '<div class="row">Mejor amistad: ' + s.friend + '</div>' : '') +
+      (s.enemy ? '<div class="row">No traga a: ' + s.enemy + '</div>' : '') +
+      '<div>' + s.traits.map(function (t) { return '<span class="tag">' + t + '</span>'; }).join('') + '</div>';
+    el.style.display = 'block';
+  }
+
+  function usePower(p, fromVoice, opts) {
+    if (!fromVoice && (cool[p] || 0) > S.time) { toast('Paciencia… el santo descansa'); return null; }
+    const text = P.applyPower(S, p, opts);
+    if (!text) return null;
+    cool[p] = S.time + (p === 'forastero' ? 180 : 60);
+    toast(text); updateHUD(); save(true);
+    return text;
+  }
+
+  document.querySelectorAll('#powers button[data-p]').forEach(function (b) {
+    b.addEventListener('click', function (e) { e.stopPropagation(); usePower(b.dataset.p, false); });
+  });
+  $('speed').textContent = 'Velocidad x' + SPEEDS[speedIdx];
+  $('speed').addEventListener('click', function (e) {
+    e.stopPropagation(); speedIdx = (speedIdx + 1) % SPEEDS.length; $('speed').textContent = 'Velocidad x' + SPEEDS[speedIdx];
+  });
+  wrap.addEventListener('click', function (e) {
+    const rct = wrap.getBoundingClientRect(), x = (e.clientX - rct.left) / scale, y = (e.clientY - rct.top) / scale;
+    let best = null, bd = 14;
+    S.villagers.forEach(function (v) { if (v.inside) return; const d = Math.hypot(v.x - x, v.y - 5 - y); if (d < bd) { bd = d; best = v; } });
+    selected = best ? best.id : null;
+    if (!best) $('card').style.display = 'none'; else showCard(best.id);
+  });
+
+  // ---------- Guardado ----------
+  function save(force) {
+    const now = Date.now();
+    if (!force && now - lastSave < 60000) return;
+    lastSave = now;
+    S.savedAt = now;
+    const json = P.serialize(S);
+    try { localStorage.setItem('pueblo-vivo', json); } catch (e) { /* sin almacenamiento local */ }
+    if (alexa) { try { alexa.skill.sendMessage({ type: 'save', state: json }); } catch (e) { console.warn(e); } }
+  }
+  addEventListener('pagehide', function () { save(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) save(true); });
+
+  function load(startData) {
+    let json = startData && startData.state;
+    if (!json) { try { json = localStorage.getItem('pueblo-vivo'); } catch (e) { json = null; } }
+    if (params.get('nuevo') === '1') json = null;
+    let st = null;
+    try { st = json ? P.deserialize(json) : null; } catch (e) { st = null; }
+    if (!st || !st.villagers) return { S: P.createWorld(Date.now() % 100000), text: null, fresh: true };
+    const since = st.time;
+    const away = st.savedAt ? (Date.now() - st.savedAt) / 1000 : 0;
+    const mins = Math.min(OFFLINE_CAP, Math.floor(away * OFFLINE_RATE));
+    if (mins >= 30) P.fastForward(st, mins);
+    return { S: st, text: mins >= 30 ? P.chronicle(st, since) : null, fresh: false };
+  }
+
+  // ---------- Conexión con Alexa ----------
+  function onAlexaMessage(msg) {
+    if (!msg || !S) return;
+    if (msg.type === 'power') {
+      usePower(msg.power, true, { name: msg.name || null });
+    } else if (msg.type === 'requestChronicle') {
+      const since = Math.max(0, S.time - P.DAY);
+      alexa.skill.sendMessage({ type: 'chronicle', text: P.chronicle(S, since), state: P.serialize(S) });
+    }
+  }
+
+  function start(startData) {
+    const r = load(startData);
+    S = r.S;
+    fit(); paintBackground(); updateHUD();
+    if (r.text) { showTicker('Mientras no estabas…'); if (alexa) alexa.skill.sendMessage({ type: 'chronicle', text: r.text }); else toast(r.text); }
+    if (r.fresh) toast('Bienvenido a Pueblo Vivo. Eres su santo patrón.');
+    setTimeout(function () { $('hint').style.opacity = 0; }, 25000);
+    save(true);
+    let prev = performance.now(), hudAcc = 0;
+    const frame = 1000 / 30;
+    let acc = 0;
+    function loop(t) {
+      const dt = Math.min(250, t - prev); prev = t; acc += dt;
+      if (acc >= frame) {
+        P.step(S, (acc / 1000) * BASE_RATE * SPEEDS[speedIdx]);
+        acc = 0;
+        render(t);
+        hudAcc += frame;
+        if (hudAcc > 500) { hudAcc = 0; updateHUD(); save(false); }
+      }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // En un Echo Show existe window.Alexa; en un navegador normal se arranca sin él.
+  let started = false;
+  function startOnce(data) { if (started) return; started = true; start(data); }
+  if (window.Alexa && Alexa.create) {
+    Alexa.create({ version: '1.1' }).then(function (args) {
+      alexa = args.alexa;
+      alexa.skill.onMessage(onAlexaMessage);
+      $('hint').textContent = 'Di: «Alexa, que llueva» · «Alexa, ¿qué ha pasado?»';
+      startOnce(args.message || {});
+    }).catch(function (err) { console.warn('Sin Alexa:', err); startOnce({}); });
+    setTimeout(function () { startOnce({}); }, 6000); // por si no estamos en un dispositivo Alexa
+  } else {
+    startOnce({});
+  }
+})();
+</script>
+</body>
+</html>
