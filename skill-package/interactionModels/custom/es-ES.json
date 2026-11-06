@@ -1,0 +1,61 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "pueblo vivo",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "LluviaIntent",
+          "samples": [
+            "que llueva", "haz que llueva", "manda lluvia", "lluvia", "que caiga un chaparrón",
+            "trae la lluvia", "quiero lluvia", "que llueva en el pueblo", "haz llover", "riega el campo"
+          ]
+        },
+        {
+          "name": "SolIntent",
+          "samples": [
+            "que salga el sol", "sol", "quita la lluvia", "que pare de llover", "que deje de llover",
+            "manda sol", "despeja el cielo", "haz que salga el sol", "que haga buen tiempo"
+          ]
+        },
+        {
+          "name": "FiestaIntent",
+          "samples": [
+            "haz una fiesta", "fiesta", "fiestas", "fiestas patronales", "verbena", "monta una verbena",
+            "organiza una fiesta", "que empiecen las fiestas", "haz unas fiestas", "quiero una fiesta"
+          ]
+        },
+        {
+          "name": "ForasteroIntent",
+          "slots": [{ "name": "nombre", "type": "AMAZON.FirstName" }],
+          "samples": [
+            "manda un forastero", "forastero", "que venga un forastero", "que llegue alguien nuevo",
+            "trae un vecino nuevo", "manda un vecino nuevo", "que venga alguien al pueblo",
+            "manda un forastero que se llame {nombre}", "que venga un vecino llamado {nombre}",
+            "trae a {nombre} al pueblo"
+          ]
+        },
+        {
+          "name": "BendecirIntent",
+          "samples": [
+            "bendice la cosecha", "bendecir", "bendice el campo", "bendice los campos", "bendice el pueblo",
+            "dale una bendición a la cosecha", "que haya buena cosecha", "bendición"
+          ]
+        },
+        {
+          "name": "CronicaIntent",
+          "samples": [
+            "qué ha pasado", "qué ha pasado en el pueblo", "cuéntame las novedades", "crónica",
+            "qué hay de nuevo", "cuéntame qué ha pasado", "novedades", "qué se cuenta en el pueblo",
+            "dame la crónica", "cuéntame los cotilleos", "cotilleos"
+          ]
+        }
+      ],
+      "types": []
+    }
+  }
+}
