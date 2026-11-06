@@ -1,0 +1,13 @@
+{
+  "name": "pueblo-vivo-skill",
+  "version": "0.1.0",
+  "description": "Pueblo Vivo: simulación de un pueblo español para Alexa",
+  "main": "index.js",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-model": "^1.86.0",
+    "ask-sdk-dynamodb-persistence-adapter": "^2.14.0",
+    "aws-sdk": "^2.1691.0"
+  }
+}
