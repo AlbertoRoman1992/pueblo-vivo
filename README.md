@@ -76,6 +76,13 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - **Arcas del ayuntamiento.** Pagan las obras (si no hay dinero, van lentas) y se llenan con la contribución y con lo que sobra de harina, trigo, aceituna y uva, que se vende fuera. Cuando sobran más de 600 €, el alcalde las gasta: la tradición paga fiestas con orquesta; el progreso, mejoras que dan fama. Con el progreso, quien abre un negocio recibe 150 € de ayuda.
 - **Libro → Economía:** las cadenas de producción, los negocios con su estado y sus empleados, y los precios de los negocios de siempre.
 
+### Ajustes tras probarlo en el Echo
+
+- Los iconos de aceituna, estetoscopio y arándanos no salían en el Echo (emojis demasiado nuevos); ahora son 🌿, ⚕️ y 🍒.
+- Se pueden tocar el molino, el olivar, el viñedo, el cementerio, la era y los campos, y el bar, la panadería y la tienda enseñan dueño, empleados, precio, ventas y cómo les va.
+- **El voto** ya no depende sobre todo de la edad: mezcla carácter, oficio, una inclinación personal de cada vecino (que los hijos heredan a medias), lo que piensa su pareja, si tiene negocio o le ha ido mal, y los mítines a los que va. La ficha del vecino dice a quién vota o si está indeciso.
+- **Más vida visible:** carteles electorales en las fachadas, tarima con mitin a las 18 y a las 19 con público que aplaude o abuchea, urna en el ayuntamiento el día de las elecciones; escenario con músicos en la verbena y la orquesta, paelleras humeando en el concurso, vaquilla corriendo entre barreras, arco de flores en las bodas y el paso del santo dando vueltas a la plaza en la procesión.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
