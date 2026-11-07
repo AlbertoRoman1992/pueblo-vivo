@@ -154,6 +154,113 @@
             "cómo anda {vecino}",
             "quién es {vecino}"
           ]
+        },
+        {
+          "name": "OpcionUnoIntent",
+          "samples": [
+            "la primera",
+            "la primera opción",
+            "primera",
+            "opción uno",
+            "la uno",
+            "elijo la primera",
+            "me quedo con la primera",
+            "la de la izquierda",
+            "la primera es mejor"
+          ]
+        },
+        {
+          "name": "OpcionDosIntent",
+          "samples": [
+            "la segunda",
+            "la segunda opción",
+            "segunda",
+            "opción dos",
+            "la dos",
+            "elijo la segunda",
+            "me quedo con la segunda",
+            "la de la derecha",
+            "la segunda es mejor"
+          ]
+        },
+        {
+          "name": "DilemaIntent",
+          "samples": [
+            "qué me piden",
+            "qué me pide el pueblo",
+            "qué dilema hay",
+            "lee el dilema",
+            "cuál es el dilema",
+            "repite el dilema",
+            "qué tengo que decidir",
+            "qué hay que decidir",
+            "qué consejo me piden"
+          ]
+        },
+        {
+          "name": "AlcaldeIntent",
+          "samples": [
+            "quién es el alcalde",
+            "quién es la alcaldesa",
+            "quién manda en el pueblo",
+            "cómo va el ayuntamiento",
+            "cuándo son las elecciones",
+            "quién se presenta a las elecciones",
+            "cuánto dinero hay en el ayuntamiento",
+            "cómo van las elecciones"
+          ]
+        },
+        {
+          "name": "ApoyarIntent",
+          "slots": [
+            {
+              "name": "vecino",
+              "type": "NombreVecino"
+            }
+          ],
+          "samples": [
+            "apoya a {vecino}",
+            "bendice a {vecino}",
+            "dale tu bendición a {vecino}",
+            "voto por {vecino}",
+            "quiero que gane {vecino}",
+            "que gane {vecino}",
+            "apoyo a {vecino}"
+          ]
+        },
+        {
+          "name": "EstrellasIntent",
+          "samples": [
+            "lluvia de estrellas",
+            "manda una lluvia de estrellas",
+            "que caigan estrellas",
+            "estrellas fugaces",
+            "que haya estrellas fugaces",
+            "una lluvia de estrellas"
+          ]
+        },
+        {
+          "name": "AparicionIntent",
+          "samples": [
+            "aparécete",
+            "aparece en la plaza",
+            "aparición del santo",
+            "haz una aparición",
+            "que se aparezca el santo",
+            "haz un milagro",
+            "milagro"
+          ]
+        },
+        {
+          "name": "LangostasIntent",
+          "samples": [
+            "plaga de langostas",
+            "manda una plaga",
+            "manda langostas",
+            "castiga al pueblo",
+            "castigo divino",
+            "una plaga"
+          ]
         }
       ],
       "types": [
