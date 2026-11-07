@@ -47,6 +47,13 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - **Cámara:** se arrastra con el dedo, se acerca y aleja con los botones ＋/－ o pellizcando, y ⌂ vuelve a la plaza. Si nadie toca la pantalla durante 20 segundos, la cámara va sola hacia lo último que ha pasado.
 - Los pueblos guardados con el mapa viejo se mudan solos al nuevo: conservan vecinos, casas (h0…h11), obras, familias e hitos.
 
+## Fase 2, paso 2: fe y dilemas del santo
+
+- **Fe (0–100).** Cada poder cuesta fe: sol 8, lluvia 10, fiesta 15, forastero 20, bendecir 25, lotería 35. Sube cada día con los vecinos contentos y devotos, y además con las misas, los entierros, las bodas y cada dilema que contestas. Se ve en el panel del pueblo, y cada botón muestra su coste (en gris si no llega).
+- **Milagros y castigos** (botón 😇): lluvia de estrellas (30, esa noche hay estrellas fugaces y nacen amores), aparición del santo (60, una luz dorada sobre la fuente, todo el pueblo contento y más fama) y plaga de langostas (castigo: arrasa la cosecha pero da +15 de fe porque la iglesia se llena).
+- **Dilemas.** Casi cada mañana a las 10 el pueblo te pide decidir entre dos salidas: iglesia o puente, perdonar un robo o multarlo, orquesta o ahorro, acoger temporeros, una linde en disputa, animar una declaración, una colecta para un negocio en apuros, procesión o pozo en la sequía, un joven que se quiere ir, paellas o vaquilla, campanas al alba. Tienes 13 horas de juego; si no contestas, decide el pueblo. La consecuencia se ve al día siguiente.
+- Por ahora los dilemas se contestan tocando la pantalla; la voz llegará con el paso 3. Si pides un poder por voz sin fe suficiente, Alexa te lo dice.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
