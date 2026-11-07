@@ -11,41 +11,58 @@
   const VERSION = 2;
 
   // =====================================================================
-  // MAPA: rejilla de casillas de 8x8 píxeles (60 x 34)
+  // MAPA (fase 2): pueblo orgánico de 96 x 60 casillas de 8x8 píxeles.
+  // Calles curvas con nombre; las casas se pegan unas a otras a lo largo
+  // de ellas (manzanas) con su corral detrás. Río con puente, eras y solares.
   // =====================================================================
-  const T = 8, COLS = 60, ROWS = 34, W = COLS * T, H = ROWS * T;
-  const GRASS = 0, PATH = 1, ROAD = 2, PLAZA = 3, FIELD = 4, BENCH = 6, TREE = 7, WATER = 8, BUILD = 9, DECOR = 10;
+  const MAP_VERSION = 2;
+  const T = 8, COLS = 96, ROWS = 60, W = COLS * T, H = ROWS * T;
+  const GRASS = 0, PATH = 1, ROAD = 2, PLAZA = 3, FIELD = 4, BENCH = 6, TREE = 7, WATER = 8, BUILD = 9, DECOR = 10, BRIDGE = 11, YARD = 12, ERA = 13;
   const grid = new Uint8Array(COLS * ROWS);
+  const streetOf = new Int16Array(COLS * ROWS).fill(-1);   // qué calle pasa por cada casilla
   function tileAt(c, r) { return (c < 0 || r < 0 || c >= COLS || r >= ROWS) ? BUILD : grid[r * COLS + c]; }
   function setTile(c, r, v) { if (c >= 0 && r >= 0 && c < COLS && r < ROWS) grid[r * COLS + c] = v; }
   function fillTiles(c, r, w, h, v) { for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) setTile(x, y, v); }
 
-  // Edificios en casillas: c, r = esquina superior izquierda; la puerta está en el centro del lado de abajo
-  const BUILDINGS = [
-    { id: 'h0', type: 'casa', c: 1, r: 3, w: 5, h: 4 },
-    { id: 'h1', type: 'casa', c: 8, r: 2, w: 5, h: 4 },
-    { id: 'h2', type: 'casa', c: 20, r: 3, w: 5, h: 4 },
-    { id: 'h3', type: 'casa', c: 37, r: 3, w: 5, h: 4 },
-    { id: 'h4', type: 'casa', c: 46, r: 2, w: 5, h: 4 },
-    { id: 'h5', type: 'casa', c: 52, r: 3, w: 5, h: 4 },
-    { id: 'h6', type: 'casa', c: 32, r: 12, w: 5, h: 4 },
-    { id: 'h7', type: 'casa', c: 55, r: 12, w: 5, h: 4 },
-    { id: 'h11', type: 'casa', c: 5, r: 12, w: 5, h: 4 },
-    { id: 'h8', type: 'casa', c: 2, r: 22, w: 5, h: 4 },
-    { id: 'h9', type: 'casa', c: 9, r: 22, w: 5, h: 4 },
-    { id: 'h10', type: 'casa', c: 16, r: 23, w: 5, h: 4 },
-    { id: 'iglesia', type: 'iglesia', name: 'la iglesia', c: 27, r: 1, w: 7, h: 9 },
-    { id: 'bar', type: 'bar', name: 'el bar', c: 11, r: 12, w: 7, h: 5 },
-    { id: 'panaderia', type: 'panaderia', name: 'la panadería', c: 41, r: 12, w: 7, h: 5 },
-    // solares: están reservados desde el principio y se construyen al subir de nivel
-    { id: 'tienda', type: 'tienda', name: 'la tienda', c: 49, r: 12, w: 5, h: 4, lot: true },
-    { id: 'escuela', type: 'escuela', name: 'la escuela', c: 23, r: 12, w: 5, h: 4, lot: true },
-    { id: 'quiosco', type: 'quiosco', name: 'el quiosco', c: 18, r: 13, w: 4, h: 3, lot: true }
+  const RIVER_PTS = [[0, 48], [12, 50], [26, 49], [40, 52], [54, 51], [70, 54], [84, 53], [95, 55]];
+  const ROAD_PTS = [[95, 33], [82, 33], [70, 32], [58, 34], [46, 35], [34, 34], [22, 36], [10, 36], [0, 37]];
+  // calles: w = anchura; houses = se edifica a lo largo; el orden marca qué se construye antes
+  const STREETS = [
+    { name: 'Calle Mayor', w: 2, houses: true, pts: [[53, 25], [60, 27], [69, 28], [78, 31], [86, 33]] },
+    { name: 'Calle de la Iglesia', w: 1, houses: true, pts: [[38, 20], [33, 17], [26, 15], [18, 12], [9, 10], [3, 10]] },
+    { name: 'Calle Real', w: 2, houses: true, pts: [[45, 28], [46, 31], [46, 35]] },
+    { name: 'Callejón del Pozo', w: 1, houses: true, pts: [[26, 15], [24, 21], [25, 28], [31, 31], [38, 27]] },
+    { name: 'Calle del Molino', w: 1, houses: true, pts: [[52, 18], [58, 16], [65, 13], [73, 10], [81, 8]] },
+    { name: 'Calle del Río', w: 1, houses: true, pts: [[38, 35], [36, 40], [28, 42], [16, 43], [8, 42]] },
+    { name: 'Calle Nueva', w: 1, houses: true, pts: [[56, 34], [60, 39], [68, 41], [78, 40], [86, 38]] },
+    { name: 'Camino del Puente', w: 1, pts: [[47, 36], [48, 42], [48, 47], [48, 59]] },
+    { name: 'Camino de las Eras', w: 1, pts: [[65, 13], [67, 8], [71, 5]] },
+    { name: 'Camino del Cementerio', w: 1, pts: [[52, 18], [52, 16]] }
   ];
-  // zonas decorativas que también se construyen (no se pueden pisar)
-  const MILL_T = { c: 14, r: 1, w: 5, h: 5 };
-  const OLIVE_T = { c: 1, r: 30, w: 21, h: 3 };
-  const CEMETERY_T = { c: 34, r: 2, w: 3, h: 7 };
+  const PLAZA_T = { c: 38, r: 19, w: 15, h: 9 };
+  const FOUNTAIN_T = { c: 44, r: 22, w: 2, h: 2 };
+  const BENCHES_T = [[40, 22], [49, 22], [40, 25], [49, 25]];   // 2 casillas de ancho
+  const STALL_COLS = [39, 41, 48, 50];                         // puestos del mercado (fila 19, 2 de ancho)
+  const STALL_ROW = 19;
+  const FIELDS = [{ c: 56, r: 43, w: 26, h: 7 }, { c: 6, r: 44, w: 21, h: 3 }, { c: 68, r: 15, w: 16, h: 8 }];
+  const FIELD_T = FIELDS[0];
+  const ERA_T = { c: 70, r: 3, w: 5, h: 4 };
+  const MILL_T = { c: 82, r: 2, w: 5, h: 6 };
+  const OLIVE_T = { c: 58, r: 56, w: 33, h: 3 };
+  const CEMETERY_T = { c: 50, r: 9, w: 6, h: 7 };
+
+  // Edificios fijos y solares de obras (c, r = esquina superior izquierda; door = lado de la puerta)
+  const BUILDINGS = [
+    { id: 'iglesia', type: 'iglesia', name: 'la iglesia', c: 40, r: 8, w: 9, h: 10, door: 's' },
+    { id: 'ayuntamiento', type: 'ayuntamiento', name: 'el ayuntamiento', c: 31, r: 20, w: 7, h: 6, door: 'e' },
+    { id: 'bar', type: 'bar', name: 'el bar', c: 53, r: 19, w: 6, h: 5, door: 's' },
+    { id: 'panaderia', type: 'panaderia', name: 'la panadería', c: 61, r: 22, w: 6, h: 4, door: 's' },
+    { id: 'tienda', type: 'tienda', name: 'la tienda', c: 70, r: 24, w: 5, h: 4, door: 's', lot: true },
+    { id: 'escuela', type: 'escuela', name: 'la escuela', c: 30, r: 37, w: 7, h: 4, door: 's', lot: true },
+    { id: 'consultorio', type: 'consultorio', name: 'el consultorio', c: 61, r: 35, w: 5, h: 4, door: 's', lot: true },
+    { id: 'cuartel', type: 'cuartel', name: 'el cuartel', c: 86, r: 28, w: 6, h: 4, door: 's', lot: true },
+    { id: 'quiosco', type: 'quiosco', name: 'el quiosco', c: 49, r: 30, w: 3, h: 2, door: 's', lot: true }
+  ];
 
   // Niveles del pueblo según su fama, y obras que desbloquea cada nivel
   const LEVELS = [
@@ -55,66 +72,156 @@
   const PROJECTS = [
     { id: 'farolas', level: 2, days: 1, icon: '💡', name: 'las farolas', done: 'Ya hay farolas en la carretera y en la plaza: se acabó volver a casa a oscuras' },
     { id: 'tienda', level: 2, days: 2, icon: '🛒', name: 'la tienda de ultramarinos', done: 'Abre la tienda de ultramarinos, y Carmen ya se ha enterado de lo que compra cada uno' },
+    { id: 'consultorio', level: 2, days: 2, icon: '🩺', name: 'el consultorio', done: 'Abre el consultorio médico, y llega una médica para quedarse: los mayores ya no tienen que ir a la capital' },
     { id: 'escuela', level: 3, days: 3, icon: '🏫', name: 'la escuela', done: 'Se inaugura la escuela: los críos ya no tienen que ir al pueblo de al lado' },
     { id: 'olivar', level: 3, days: 2, icon: '🫒', name: 'el olivar', done: 'Se planta el olivar comunal: dentro de unos años, aceite del pueblo' },
+    { id: 'cuartel', level: 3, days: 2, icon: '🚔', name: 'el cuartel de la Guardia Civil', done: 'Abre el cuartel de la Guardia Civil, y llega un guardia que ya patrulla las calles' },
     { id: 'quiosco', level: 4, days: 2, icon: '📰', name: 'el quiosco', done: 'Abre el quiosco de prensa en la carretera' },
     { id: 'molino', level: 4, days: 2, icon: '🌬️', name: 'el molino', done: 'Se restaura el molino viejo, y vuelve a girar después de cincuenta años' },
     { id: 'plaza', level: 5, days: 3, icon: '⛲', name: 'la plaza nueva', done: 'Se estrena la plaza nueva, con naranjos, flores y la estatua del santo' }
   ];
-  const ROAD_ROWS = [19, 20];
-  const LANE_ROW = 28;
-  const PLAZA_T = { c: 24, r: 21, w: 12, h: 8 };
-  const FIELD_T = { c: 40, r: 23, w: 19, h: 9 };
-  const FOUNTAIN_T = { c: 29, r: 24, w: 2, h: 2 };
-  const BENCHES_T = [[25, 23], [33, 23], [25, 27], [33, 27]]; // 2 casillas de ancho
-  const STALL_COLS = [24, 27, 30, 33];                       // puestos del mercado (fila 21, 2 de ancho)
-  const STALL_ROW = 21;
+  const HOMES = [];        // casas: las primeras 12 existen desde el principio; el resto son solares para crecer
+  const LAMPS = [];        // dónde van las farolas (en píxeles)
+  const INITIAL_HOMES = 12, MAX_HOMES = 46;
+  const WALKABLE = {}; WALKABLE[PATH] = WALKABLE[ROAD] = WALKABLE[PLAZA] = WALKABLE[BRIDGE] = WALKABLE[ERA] = 1;
+
+  // Recorre una polilínea casilla a casilla, sin saltos en diagonal (para que las calles se puedan andar)
+  function walkLine(pts, fn) {
+    let pc = null, pr = null;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const x0 = pts[i][0], y0 = pts[i][1], x1 = pts[i + 1][0], y1 = pts[i + 1][1];
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 3 || 1;
+      for (let k = 0; k <= n; k++) {
+        const c = Math.round(x0 + (x1 - x0) * k / n), r = Math.round(y0 + (y1 - y0) * k / n);
+        if (c === pc && r === pr) continue;
+        if (pc !== null && c !== pc && r !== pr) fn(pc, r, pts[i], pts[i + 1]);   // rellena la esquina
+        fn(c, r, pts[i], pts[i + 1]);
+        pc = c; pr = r;
+      }
+    }
+  }
+  function doorTile(b) {
+    if (b.door === 'n') return { c: b.c + Math.floor(b.w / 2), r: b.r - 1, dc: 0, dr: -1 };
+    if (b.door === 'e') return { c: b.c + b.w, r: b.r + Math.floor(b.h / 2), dc: 1, dr: 0 };
+    if (b.door === 'w') return { c: b.c - 1, r: b.r + Math.floor(b.h / 2), dc: -1, dr: 0 };
+    return { c: b.c + Math.floor(b.w / 2), r: b.r + b.h, dc: 0, dr: 1 };
+  }
+  function setupBuilding(b) {
+    const d = doorTile(b);
+    b.dc = d.c; b.dr = d.r;
+    b.x = b.c * T; b.y = b.r * T; b.pw = b.w * T; b.ph = b.h * T;
+    b.door = b.door || 's';
+    b.doorPx = { x: d.c * T + T / 2, y: d.r * T + T / 2 };
+    // camino desde la puerta hasta la calle más cercana en esa dirección
+    let c = d.c, r = d.r;
+    for (let k = 0; k < 8 && !WALKABLE[tileAt(c, r)]; k++) {
+      const t = tileAt(c, r);
+      if (t === BUILD || t === WATER) throw new Error('La puerta de ' + b.id + ' da a un edificio en ' + c + ',' + r);
+      setTile(c, r, PATH); c += d.dc; r += d.dr;
+    }
+  }
+  function rectFree(c, r, w, h) {
+    if (c < 1 || r < 1 || c + w > COLS - 1 || r + h > ROWS - 1) return false;
+    for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) if (tileAt(x, y) !== GRASS) return false;
+    return true;
+  }
 
   function buildMap() {
     grid.fill(GRASS);
-    // carretera principal
-    ROAD_ROWS.forEach(function (r) { fillTiles(0, r, COLS, 1, ROAD); });
-    // plaza, huerta y calle de abajo
+    // río
+    walkLine(RIVER_PTS, function (c, r) { for (let k = -1; k <= 1; k++) setTile(c, r + k, WATER); });
+    // huertas y campos
+    FIELDS.forEach(function (f) { fillTiles(f.c, f.r, f.w, f.h, FIELD); });
+    // carretera (travesía)
+    walkLine(ROAD_PTS, function (c, r) { setTile(c, r, ROAD); setTile(c, r + 1, ROAD); });
+    // calles: sobre el agua, puente
+    STREETS.forEach(function (s, si) {
+      s.tiles = [];
+      walkLine(s.pts, function (c, r, a, b) {
+        for (let dy = 0; dy < s.w; dy++) for (let dx = 0; dx < s.w; dx++) {
+          const cc = c + dx, rr = r + dy, t = tileAt(cc, rr);
+          if (t === ROAD) continue;
+          setTile(cc, rr, t === WATER ? BRIDGE : PATH);
+          if (cc >= 0 && rr >= 0 && cc < COLS && rr < ROWS) streetOf[rr * COLS + cc] = si;
+        }
+        s.tiles.push([c, r, b[0] - a[0], b[1] - a[1]]);
+      });
+    });
+    // plaza mayor (esquinas recortadas), fuente, bancos y era
     fillTiles(PLAZA_T.c, PLAZA_T.r, PLAZA_T.w, PLAZA_T.h, PLAZA);
-    fillTiles(FIELD_T.c, FIELD_T.r, FIELD_T.w, FIELD_T.h, FIELD);
-    fillTiles(1, LANE_ROW, PLAZA_T.c - 1, 1, PATH);
-    fillTiles(7, 21, 1, LANE_ROW - 21, PATH);        // callejón entre la carretera y la calle de abajo
-    fillTiles(PLAZA_T.c + PLAZA_T.w, 25, FIELD_T.c - PLAZA_T.c - PLAZA_T.w, 1, PATH); // plaza -> huerta
-    fillTiles(49, 21, 1, FIELD_T.r - 21, PATH);      // carretera -> huerta
-    // edificios y caminos rectos desde cada puerta
-    BUILDINGS.forEach(function (b) {
-      fillTiles(b.c, b.r, b.w, b.h, BUILD);
-      b.dc = b.c + Math.floor(b.w / 2); b.dr = b.r + b.h;
-      b.x = b.c * T; b.y = b.r * T; b.pw = b.w * T; b.ph = b.h * T;
-      b.door = { x: b.dc * T + T / 2, y: b.dr * T + T / 2 };
-    });
-    BUILDINGS.forEach(function (b) {
-      const below = b.dr > ROAD_ROWS[1];
-      const end = below ? LANE_ROW - 1 : ROAD_ROWS[0] - 1;
-      for (let r = b.dr; r <= end; r++) {
-        if (tileAt(b.dc, r) === BUILD) throw new Error('Camino de ' + b.id + ' cruza un edificio en ' + b.dc + ',' + r);
-        setTile(b.dc, r, PATH);
-      }
-    });
-    // zonas reservadas para el molino y el olivar
-    fillTiles(MILL_T.c, MILL_T.r, MILL_T.w, MILL_T.h, DECOR);
-    fillTiles(OLIVE_T.c, OLIVE_T.r, OLIVE_T.w, OLIVE_T.h, DECOR);
-    fillTiles(CEMETERY_T.c, CEMETERY_T.r, CEMETERY_T.w, CEMETERY_T.h, DECOR);
-    // fuente y bancos
+    [[PLAZA_T.c, PLAZA_T.r + PLAZA_T.h - 1], [PLAZA_T.c + PLAZA_T.w - 1, PLAZA_T.r + PLAZA_T.h - 1]].forEach(function (p) { setTile(p[0], p[1], GRASS); });
     fillTiles(FOUNTAIN_T.c, FOUNTAIN_T.r, FOUNTAIN_T.w, FOUNTAIN_T.h, WATER);
     BENCHES_T.forEach(function (p) { fillTiles(p[0], p[1], 2, 1, BENCH); });
-    // árboles: solo en hierba rodeada de hierba, con separación entre ellos
-    const rng = seededRng(2026);
-    const trees = [];
-    for (let i = 0; i < 3000 && trees.length < 46; i++) {
-      const c = Math.floor(rng() * COLS), r = 1 + Math.floor(rng() * (ROWS - 1));
+    for (let y = ERA_T.r; y < ERA_T.r + ERA_T.h; y++) for (let x = ERA_T.c; x < ERA_T.c + ERA_T.w; x++) {
+      const dx = (x + .5 - (ERA_T.c + ERA_T.w / 2)) / (ERA_T.w / 2), dy = (y + .5 - (ERA_T.r + ERA_T.h / 2)) / (ERA_T.h / 2);
+      if (dx * dx + dy * dy <= 1.05) setTile(x, y, ERA);
+    }
+    // edificios fijos y solares de obras
+    BUILDINGS.forEach(function (b) { fillTiles(b.c, b.r, b.w, b.h, BUILD); });
+    BUILDINGS.forEach(setupBuilding);
+    // molino, olivar y cementerio
+    [MILL_T, OLIVE_T, CEMETERY_T].forEach(function (z) { fillTiles(z.c, z.r, z.w, z.h, DECOR); });
+    // casas pegadas a lo largo de las calles, con su corral detrás
+    const rng = seededRng(1948);
+    const fronts = STREETS.filter(function (s) { return s.houses; }).map(function (s) { return { s: s, tiles: s.tiles }; });
+    fronts.push({ s: { name: 'Plaza Mayor' }, tiles: (function () { const t = []; for (let c = PLAZA_T.c + 1; c < PLAZA_T.c + PLAZA_T.w - 1; c++) t.push([c, PLAZA_T.r + PLAZA_T.h - 1, 1, 0]); return t; })(), only: 's' });
+    const placed = [], numbers = {};
+    fronts.forEach(function (f) {
+      f.tiles.forEach(function (t, i) {
+        if (i % 2 && rng() < 0.5) return;
+        const sc = t[0], sr = t[1], horiz = Math.abs(t[2]) >= Math.abs(t[3]);
+        const sides = f.only ? [f.only] : horiz ? ['n', 's'] : ['w', 'e'];
+        sides.forEach(function (side) {
+          const sizes = rng() < 0.6 ? [[5, 4], [4, 4], [3, 4], [4, 3], [3, 3]] : [[4, 4], [5, 3], [4, 3], [3, 4], [3, 3]];
+          for (let k = 0; k < sizes.length; k++) {
+            const ww = sizes[k][0], dd = sizes[k][1];
+            let c, r, w, h, door;
+            if (side === 'n') { w = ww; h = dd; c = sc - Math.floor(ww / 2); r = sr - dd; door = 's'; }
+            else if (side === 's') { w = ww; h = dd; c = sc - Math.floor(ww / 2); r = sr + 1; door = 'n'; }
+            else if (side === 'w') { w = dd; h = ww; c = sc - dd; r = sr - Math.floor(ww / 2); door = 'e'; }
+            else { w = dd; h = ww; c = sc + 1; r = sr - Math.floor(ww / 2); door = 'w'; }
+            if (!rectFree(c, r, w, h)) continue;
+            fillTiles(c, r, w, h, BUILD);
+            numbers[f.s.name] = (numbers[f.s.name] || 0) + 1;
+            const hb = { type: 'casa', c: c, r: r, w: w, h: h, door: door, street: f.s.name, num: numbers[f.s.name] };
+            placed.push(hb);
+            // corral o huerto detrás de la casa
+            const yd = door === 's' ? [c, r - 2, w, 2] : door === 'n' ? [c, r + h, w, 2] : door === 'e' ? [c - 2, r, 2, h] : [c + w, r, 2, h];
+            hb.yard = [];
+            for (let y = yd[1]; y < yd[1] + yd[3]; y++) for (let x = yd[0]; x < yd[0] + yd[2]; x++) if (tileAt(x, y) === GRASS && x > 0 && y > 0 && x < COLS - 1 && y < ROWS - 1) { setTile(x, y, YARD); hb.yard.push([x, y]); }
+            break;
+          }
+        });
+      });
+    });
+    // las más cercanas a la plaza son las casas que ya existen; el resto, solares para crecer
+    const pcx = PLAZA_T.c + PLAZA_T.w / 2, pcy = PLAZA_T.r + PLAZA_T.h / 2;
+    placed.sort(function (a, b) { return Math.hypot(a.c + a.w / 2 - pcx, a.r + a.h / 2 - pcy) - Math.hypot(b.c + b.w / 2 - pcx, b.r + b.h / 2 - pcy); });
+    placed.slice(MAX_HOMES).forEach(function (hb) { fillTiles(hb.c, hb.r, hb.w, hb.h, GRASS); hb.yard.forEach(function (p) { setTile(p[0], p[1], GRASS); }); });
+    placed.slice(0, MAX_HOMES).forEach(function (hb, i) {
+      hb.id = 'h' + i; hb.cap = Math.max(3, Math.min(6, Math.round(hb.w * hb.h / 3.2)));
+      hb.initial = i < INITIAL_HOMES;
+      setupBuilding(hb); HOMES.push(hb); BUILDINGS.push(hb);
+    });
+    // farolas cada pocas casillas por la carretera, la calle mayor y la calle real
+    [{ pts: ROAD_PTS, step: 7 }, { pts: STREETS[0].pts, step: 5 }, { pts: STREETS[2].pts, step: 4 }, { pts: STREETS[1].pts, step: 6 }].forEach(function (L) {
+      let k = 0;
+      walkLine(L.pts, function (c, r) {
+        if (k++ % L.step) return;
+        const spot = [[c, r - 1], [c, r + 2], [c - 1, r], [c + 1, r]].find(function (p) { return tileAt(p[0], p[1]) === GRASS; });
+        if (spot && !LAMPS.some(function (l) { return Math.abs(l[0] - spot[0] * T) < 24 && Math.abs(l[1] - spot[1] * T) < 24; })) LAMPS.push([spot[0] * T + T / 2, spot[1] * T + T - 1]);
+      });
+    });
+    // árboles sueltos en la hierba, separados entre sí
+    const trng = seededRng(2026), trees = [];
+    for (let i = 0; i < 9000 && trees.length < 120; i++) {
+      const c = Math.floor(trng() * COLS), r = 1 + Math.floor(trng() * (ROWS - 1));
       let ok = true;
       for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1 && ok; dx++) {
         const t = tileAt(c + dx, r + dy);
         if (t !== GRASS && !(c + dx < 0 || c + dx >= COLS || r + dy >= ROWS)) ok = false;
       }
-      if (!ok) continue;
-      if (trees.some(function (t) { return Math.abs(t[0] - c) < 3 && Math.abs(t[1] - r) < 3; })) continue;
+      if (!ok || trees.some(function (t) { return Math.abs(t[0] - c) < 3 && Math.abs(t[1] - r) < 3; })) continue;
       trees.push([c, r]);
     }
     trees.forEach(function (t) { setTile(t[0], t[1], TREE); });
@@ -131,13 +238,26 @@
   const TREES = buildMap();
   const BY_ID = {}; BUILDINGS.forEach(function (b) { BY_ID[b.id] = b; });
   function building(id) { return BY_ID[id]; }
-  const ENTRY = { c: COLS - 1, r: ROAD_ROWS[0] };
+  const ENTRY = { c: COLS - 1, r: ROAD_PTS[0][1] };
+  const ROAD_ROWS = [ROAD_PTS[0][1], ROAD_PTS[0][1] + 1];
+  const LANE_ROW = 0;
+  function streetName(c, r) {
+    for (let d = 0; d < 4; d++) for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) {
+      const cc = c + dx, rr = r + dy;
+      if (cc < 0 || rr < 0 || cc >= COLS || rr >= ROWS) continue;
+      const s = streetOf[rr * COLS + cc];
+      if (s >= 0) return STREETS[s].name;
+      if (tileAt(cc, rr) === PLAZA) return 'la Plaza Mayor';
+      if (tileAt(cc, rr) === ROAD) return 'la carretera';
+    }
+    return 'las afueras';
+  }
 
   // ---------- Búsqueda de rutas (A*, 8 direcciones, sin cortar esquinas) ----------
   function isStall(c, r) { return r === STALL_ROW && STALL_COLS.some(function (s) { return c === s || c === s + 1; }); }
   function stepCost(S, c, r) {
     const t = tileAt(c, r);
-    if (t === PATH || t === ROAD) return 1;
+    if (t === PATH || t === ROAD || t === BRIDGE || t === ERA) return 1;
     if (t === PLAZA) return (S && isMarket(S) && isStall(c, r)) ? Infinity : 1;
     if (t === FIELD) return 1.8;
     if (t === GRASS) return 2.6;
@@ -172,7 +292,7 @@
     function hcost(c, r) { const dx = Math.abs(c - c1), dy = Math.abs(r - r1); return (dx + dy) + (1.414 - 2) * Math.min(dx, dy); }
     g[start] = 0; push(start, hcost(c0, r0));
     let iter = 0;
-    while (hp.length && iter++ < 6000) {
+    while (hp.length && iter++ < 24000) {
       const cur = pop();
       if (cur === goal) break;
       if (closed[cur]) continue;
@@ -284,7 +404,8 @@
       fame: 0, level: 1, fameDay: 0, builds: {}, milestones: []
     };
     milestone(S, '⛪', 'Se funda Pueblo Vivo: 21 vecinos, un bar, una panadería y mucha vida por delante');
-    BUILDINGS.forEach(function (b) { if (b.type === 'casa') S.houses[b.id] = 0; });
+    HOMES.forEach(function (b) { if (b.initial) S.houses[b.id] = 0; });
+    S.map = MAP_VERSION;
     const L = function (skin, hair, shirt, pants) { return { skin: skin, hair: hair, shirt: shirt, pants: pants }; };
     S.villagers = [
       V('paco', 'Paco', 'm', 52, 'panadero', ['trabajador', 'gruñón'], 'h0', 380, L('#e8b48a', '#3b2a20', '#f2efe6', '#4a4f6a')),
@@ -353,6 +474,13 @@
     return clamp((S.time - b.start) / (b.until - b.start), 0, 1);
   }
   function building_(S) { return PROJECTS.find(function (p) { return S.builds[p.id] && !S.builds[p.id].done; }); }
+  // el edificio que está en obras ahora mismo (una obra del pueblo o una casa nueva), para mandar obreros
+  function obraBuilding(S) {
+    const p = building_(S);
+    if (p && BY_ID[p.id]) return BY_ID[p.id];
+    if (S.homeObra && BY_ID[S.homeObra.id]) return BY_ID[S.homeObra.id];
+    return null;
+  }
   function levelFor(fame) { let l = 1; LEVELS.forEach(function (x, i) { if (fame >= x.at) l = i + 1; }); return l; }
   function moodScore(v) {
     let m = 100 - (v.needs.hunger + (100 - v.needs.energy) + v.needs.social) / 3;
@@ -379,6 +507,8 @@
       const b = S.builds[p.id];
       if (!b || b.done || S.time < b.until) return;
       b.done = Math.round(S.time);
+      if (p.id === 'consultorio') stranger(S, null, 'médico');
+      if (p.id === 'cuartel') stranger(S, null, 'guardia');
       if (p.id === 'tienda') {
         const owner = byId(S, 'carmen') || adults(S).filter(function (v) { return v.job === 'costurero'; })[0];
         S.biz.tienda = { owner: owner ? owner.id : null, price: 3 };
@@ -554,7 +684,7 @@
           const old = jobName(v); v.job = 'jubilado';
           log(S, v.name + ' se jubila después de toda una vida de ' + old, '🎂 ' + v.name + ' se jubila', 2, [v.id]);
         }
-        if (v.age >= 72 && rnd(S) < Math.min(0.9, (v.age - 70) * 0.03)) die(S, v);
+        if (v.age >= 72 && rnd(S) < Math.min(0.9, (v.age - 70) * 0.03) * (isBuilt(S, 'consultorio') ? 0.6 : 1)) die(S, v);
       });
     }
     // partos y adopciones que tocan hoy
@@ -606,6 +736,83 @@
       });
     }
   }
+  // ---------- Vivienda: cada casa tiene un tope de gente; si no caben, se construye otra ----------
+  function builtHomes(S) { return HOMES.filter(function (b) { return S.houses[b.id] !== undefined; }); }
+  function occupants(S, id) { return S.villagers.filter(function (v) { return v.home === id; }); }
+  function freeHome(S, need, emptyOnly) {
+    const c = builtHomes(S).map(function (b) { return { b: b, n: occupants(S, b.id).length }; })
+      .filter(function (x) { return (emptyOnly ? x.n === 0 : true) && x.n + need <= x.b.cap; })
+      .sort(function (a, b) { return a.n - b.n; });
+    return c.length ? c[0].b : null;
+  }
+  function addressOf(b) { return b && b.street ? b.street + ', ' + b.num : null; }
+  function familyOf(S, a) {
+    // la pareja y sus hijos menores que viven con ellos
+    const p = a.partner && byId(S, a.partner);
+    return [a].concat(p ? [p] : []).concat(S.villagers.filter(function (k) {
+      return !isAdult(k) && ((k.parents || []).indexOf(a.id) >= 0 || (p && (k.parents || []).indexOf(p.id) >= 0));
+    }));
+  }
+  function whoNeedsHome(S) {
+    // 1) matrimonios que no viven juntos o que comparten casa con otros adultos
+    for (let i = 0; i < S.villagers.length; i++) {
+      const a = S.villagers[i], b = a.partner && byId(S, a.partner);
+      if (!b || !a.married || a.id > b.id) continue;
+      const fam = familyOf(S, a);
+      const crowd = a.home !== b.home || occupants(S, a.home).some(function (o) { return fam.indexOf(o) < 0 && isAdult(o); });
+      if (crowd) return { who: fam, why: 'pareja' };
+    }
+    // 2) casas con más gente de la que cabe: se va el adulto joven sin pareja
+    const over = builtHomes(S).find(function (b) { return occupants(S, b.id).length > b.cap; });
+    if (over) {
+      const young = occupants(S, over.id).filter(function (o) { return isAdult(o) && !o.partner; }).sort(function (x, y) { return x.age - y.age; })[0];
+      if (young) return { who: [young], why: 'sitio' };
+      const couple = occupants(S, over.id).find(function (o) { return o.married; });
+      if (couple) return { who: familyOf(S, couple), why: 'sitio' };
+    }
+    return null;
+  }
+  function moveIn(S, who, b) {
+    who.forEach(function (v) { v.home = b.id; if (v.inside && v.inside !== b.id && HOMES.indexOf(BY_ID[v.inside]) >= 0) v.actUntil = S.time; });
+  }
+  function housingDay(S) {
+    const ob = S.homeObra;
+    if (ob && S.time >= ob.until) {
+      const b = BY_ID[ob.id];
+      S.houses[ob.id] = 0; S.homeObra = null;
+      const who = (ob.who || []).map(function (id) { return byId(S, id); }).filter(Boolean);
+      const need = whoNeedsHome(S);
+      const movers = who.length ? who : need ? need.who : [];
+      if (movers.length) moveIn(S, movers, b);
+      const fam = movers[0] ? (movers.length > 1 ? 'los ' + movers[0].sur : movers[0].name) : 'una familia';
+      log(S, fam.charAt(0).toUpperCase() + fam.slice(1) + ' estrena' + (movers.length > 1 ? 'n' : '') + ' casa en ' + addressOf(b) + '. El pueblo crece calle a calle',
+        '🏠 Casa nueva en ' + b.street, 3, movers.map(function (v) { return v.id; }), { house: b.id });
+      milestone(S, '🏠', 'Se levanta una casa nueva en ' + addressOf(b) + (movers[0] ? ' para ' + fam : ''));
+      addFame(S, 4);
+      return;
+    }
+    if (ob) return;
+    const need = whoNeedsHome(S);
+    if (!need) return;
+    const empty = freeHome(S, need.who.length, true);
+    if (empty) {
+      moveIn(S, need.who, empty);
+      log(S, (need.who.length > 1 ? need.who[0].name + ' y familia se mudan' : need.who[0].name + ' se muda') + ' a ' + addressOf(empty), '📦 Mudanza a ' + empty.street, 2, need.who.map(function (v) { return v.id; }));
+      return;
+    }
+    const lot = HOMES.find(function (b) { return S.houses[b.id] === undefined; });
+    if (!lot) return;
+    S.homeObra = { id: lot.id, start: Math.round(S.time), until: Math.round(S.time + 2 * DAY), who: need.who.map(function (v) { return v.id; }) };
+    log(S, 'empiezan las obras de una casa en ' + addressOf(lot) + ' para ' + (need.who.length > 1 ? need.who[0].name + ' y familia' : need.who[0].name),
+      '🚧 Se construye una casa en ' + lot.street, 2, need.who.map(function (v) { return v.id; }));
+  }
+  function homeProgress(S, id) {
+    if (S.houses[id] !== undefined) return 1;
+    const ob = S.homeObra;
+    if (!ob || ob.id !== id) return 0;
+    return clamp((S.time - ob.start) / (ob.until - ob.start), 0.01, 0.99);
+  }
+
   function findDeceased(S, name) {
     const n = norm(name);
     if (!n) return null;
@@ -645,14 +852,21 @@
   }
   function placeTile(S, place, v) {
     if (place === 'plaza') return randomTile(S, PLAZA_T, function (c, r) { return tileAt(c, r) === PLAZA && !(isMarket(S) && isStall(c, r)) && r !== STALL_ROW + 1; });
-    if (place === 'campo') return randomTile(S, FIELD_T, function (c, r) { return tileAt(c, r) === FIELD; });
+    if (place === 'campo') {
+      const f = FIELDS[(v.offset + 40) % 5 < 3 ? 0 : (v.offset + 40) % 5 === 3 ? 1 : 2];
+      return randomTile(S, f, function (c, r) { return tileAt(c, r) === FIELD; });
+    }
+    if (place === 'patrulla') {
+      const s = STREETS[Math.floor(rnd(S) * 7)], t = s.tiles[Math.floor(rnd(S) * s.tiles.length)];
+      return passable(S, t[0], t[1]) ? { c: t[0], r: t[1] } : placeTile(S, 'plaza', v);
+    }
     if (place === 'puesto') {
       const sellers = S.villagers.filter(function (o) { return o.job === 'agricultor' && isAdult(o); });
       const i = Math.max(0, sellers.indexOf(v));
       return { c: STALL_COLS[i % STALL_COLS.length] + (i >= STALL_COLS.length ? 1 : 0), r: STALL_ROW + 1 };
     }
     if (place === 'obra') {
-      const ob = building_(S), lb = ob && BY_ID[ob.id];
+      const lb = obraBuilding(S);
       if (lb) {
         const spots = [[lb.c - 1, lb.dr - 1], [lb.c + lb.w, lb.dr - 1], [lb.dc - 1, lb.dr], [lb.dc + 1, lb.dr], [lb.c - 1, lb.r + 1], [lb.c + lb.w, lb.r + 1]]
           .filter(function (p) { return passable(S, p[0], p[1]); });
@@ -664,7 +878,7 @@
     const b = building(place);
     return { c: b.dc, r: b.dr };
   }
-  function isIndoor(place) { return place !== 'plaza' && place !== 'campo' && place !== 'puesto' && place !== 'obra'; }
+  function isIndoor(place) { return place !== 'plaza' && place !== 'campo' && place !== 'puesto' && place !== 'obra' && place !== 'patrulla'; }
 
   function desired(S, v) {
     const h = hourOf(S), wd = wdOf(S), day = dayOf(S), rain = S.weather === 'lluvia';
@@ -690,9 +904,13 @@
     const work = (h >= 9 && h < 14) || (h >= 17 && h < 20);
     // lo que va trayendo el progreso del pueblo
     if (v.job === 'niño' && wd < 5 && h >= 9 && h < 14 && isBuilt(S, 'escuela')) return { act: 'ir al cole', place: 'escuela', dur: 60 };
-    const obra = building_(S);
-    if (obra && BY_ID[obra.id] && work && wd < 6 && !rain && (v.job === 'agricultor' || v.job === 'jubilado') && isAdult(v) &&
+    if (obraBuilding(S) && work && wd < 6 && !rain && (v.job === 'agricultor' || v.job === 'jubilado') && isAdult(v) &&
       (v.offset + dayOf(S)) % 3 === 0) return { act: 'trabajar en la obra', place: 'obra', dur: 50 };
+    // servicios públicos
+    if (v.job === 'médico' && work && wd < 5) return { act: 'pasar consulta', place: 'consultorio', dur: 60 };
+    if (v.job === 'guardia' && ((h >= 10 && h < 14) || (h >= 17 && h < 21.5))) return { act: 'patrullar', place: 'patrulla', dur: 25 };
+    if (v.age >= 65 && isBuilt(S, 'consultorio') && h >= 10 && h < 12.5 && (day + v.offset + 40) % 7 === 0 && v.days.medico !== day) { v.days.medico = day; return { act: 'ir al médico', place: 'consultorio', dur: 30 }; }
+    if (isAdult(v) && wd === 0 && h >= 10 && h < 12.5 && v.days.papeles !== day && rnd(S) < 0.08) { v.days.papeles = day; return { act: 'hacer papeles', place: 'ayuntamiento', dur: 20 }; }
     if (isAdult(v) && isBuilt(S, 'quiosco') && h >= 8 && h < 11 && v.days.periodico !== day && rnd(S) < 0.12) return { act: 'comprar el periódico', place: 'quiosco', dur: 10, buy: 'periodico' };
     if (isAdult(v) && isBuilt(S, 'tienda') && ((h >= 10 && h < 13.5) || (h >= 17.5 && h < 20)) && v.days.tienda !== day && v.money > 20 &&
       (!S.biz.tienda || S.biz.tienda.owner !== v.id) && rnd(S) < 0.2) return { act: 'hacer la compra', place: 'tienda', dur: 20, buy: 'tienda' };
@@ -917,6 +1135,7 @@
       v.days = { trabajo: v.days.trabajo };
     });
     lifeDay(S, day, day % 7 === 1);
+    housingDay(S);
     townDay(S);
   }
 
@@ -1176,7 +1395,7 @@
     if (stake < 3) return;
     lose.money -= stake; win.money += stake;
     win.bubble = { text: '¡Órdago!', until: S.time + 8 };
-    if (stake >= 16 && ((has(lose, 'gruñón') && rnd(S) < 0.5) || lose.money < 10)) {
+    if (stake >= 16 && ((has(lose, 'gruñón') && rnd(S) < 0.5) || lose.money < 10) && !(isBuilt(S, 'cuartel') && rnd(S) < 0.5)) {
       addRel(S, a.id, b.id, -15); remember(lose, 'rencor', win.id, stake, S.time);
       log(S, 'la partida de mus entre ' + win.name + ' y ' + lose.name + ' acabó en bronca: ' + lose.name + ' perdió ' + euros(stake) + ' y dice que hubo trampa', '🃏 Bronca en el mus', 3, [win.id, lose.id]);
     } else {
@@ -1185,9 +1404,12 @@
   }
 
   function wedding(S, a, b) {
-    const count = function (h) { return S.villagers.filter(function (v) { return v.home === h; }).length; };
-    const home = count(a.home) <= count(b.home) ? a.home : b.home;
-    a.home = home; b.home = home; a.married = b.married = true;
+    // se van a vivir juntos a la casa de quien viva con menos gente, si caben; si no, piden casa (housingDay)
+    const room = function (x, other) { const b = BY_ID[x.home]; const n = S.villagers.filter(function (v) { return v.home === x.home; }).length; return b && b.cap ? b.cap - n : 0; };
+    const alone = function (x) { return S.villagers.every(function (o) { return o === x || o.home !== x.home || (o.parents || []).indexOf(x.id) >= 0; }); };
+    if (alone(a) && room(a) >= 1) b.home = a.home;
+    else if (alone(b) && room(b) >= 1) a.home = b.home;
+    a.married = b.married = true;
     S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 180); S.fiestaFrom = Math.min(S.fiestaFrom || 0, S.time);
     milestone(S, '💒', 'Boda de ' + a.name + ' y ' + b.name);
     addFame(S, 20);
@@ -1275,13 +1497,12 @@
 
   function stranger(S, givenName, job) {
     const used = S.villagers.map(function (v) { return v.name; });
-    const opts = STRANGER_NAMES.filter(function (n) { return used.indexOf(n[0]) < 0; });
-    const nm = opts.length ? pick(S, opts) : ['Forastero ' + S.nextId, 'm'];
+    const needSex = job === 'médico' ? 'f' : job === 'cura' || job === 'guardia' ? 'm' : null;
+    const opts = STRANGER_NAMES.filter(function (n) { return used.indexOf(n[0]) < 0 && (!needSex || n[1] === needSex); });
+    const nm = opts.length ? pick(S, opts) : [needSex === 'f' ? 'Forastera ' + S.nextId : 'Forastero ' + S.nextId, needSex || 'm'];
     let name = nm[0], sex = nm[1];
     if (givenName) { name = capital(String(givenName).trim()); sex = /a$/i.test(name) ? 'f' : 'm'; }
-    const homes = BUILDINGS.filter(function (b) { return b.type === 'casa'; }).sort(function (x, y) {
-      return S.villagers.filter(function (v) { return v.home === x.id; }).length - S.villagers.filter(function (v) { return v.home === y.id; }).length;
-    });
+    const homes = [freeHome(S, 1, false) || builtHomes(S).sort(function (x, y) { return occupants(S, x.id).length / x.cap - occupants(S, y.id).length / y.cap; })[0]];
     const t1 = pick(S, ALL_TRAITS); let t2 = pick(S, ALL_TRAITS); if (t2 === t1) t2 = 'alegre';
     const palette = ['#e06666', '#6fa8dc', '#93c47d', '#ffd966', '#c27ba0', '#76a5af'];
     const id = 'v' + (S.nextId++);
@@ -1290,11 +1511,13 @@
       home: homes[0].id, money: 80 + Math.floor(rnd(S) * 200), partner: null, married: false, crush: null, stock: 0, mem: [],
       look: { skin: pick(S, ['#f0c29a', '#e8b48a', '#c98d63', '#8d5a3b']), hair: pick(S, ['#2a1a14', '#a0522d', '#d4a017', '#111111']), shirt: pick(S, palette), pants: '#3a3a52' },
       needs: { hunger: 40, energy: 70, social: 70 },
-      x: ENTRY.c * T + T / 2, y: ENTRY.r * T + T / 2, path: [], inside: null, act: 'pasear', actPlace: 'plaza', actUntil: S.time + 60,
+      x: ENTRY.c * T + T / 2, y: ENTRY.r * T + T / 2, path: [], inside: null, act: 'empadronarse', actPlace: 'ayuntamiento', actUntil: S.time + 70,
       bubble: { text: '¡Hola! ¿Es aquí Pueblo Vivo?', until: S.time + 12 }, offset: Math.floor(rnd(S) * 40) - 20, days: {}, parents: [], born: dayOf(S)
     };
     if (v.job === 'cura') { v.name = 'Don ' + v.name; v.look.shirt = '#1d1d24'; v.look.pants = '#1d1d24'; }
-    const p = placeTile(S, 'plaza', v);
+    if (v.job === 'guardia') { v.look.shirt = '#4a5a3a'; v.look.pants = '#3a4a2e'; }
+    if (v.job === 'médico') v.look.shirt = '#f4f6f6';
+    const p = placeTile(S, 'ayuntamiento', v);
     v.path = findPath(S, ENTRY.c, ENTRY.r, p.c, p.r) || [];
     S.villagers.push(v);
     S.villagers.forEach(function (o) { if (o.id !== id) setRel(S, id, o.id, Math.floor(rnd(S) * 20) - 5); });
@@ -1308,7 +1531,8 @@
   function jobName(v) {
     const f = fem(v);
     return ({ panadero: f ? 'panadera' : 'panadero', agricultor: f ? 'agricultora' : 'agricultor', costurero: f ? 'costurera' : 'costurero',
-      tabernero: f ? 'tabernera' : 'tabernero', jubilado: f ? 'jubilada' : 'jubilado', cura: 'cura', niño: f ? 'niña' : 'niño' })[v.job] || v.job;
+      tabernero: f ? 'tabernera' : 'tabernero', jubilado: f ? 'jubilada' : 'jubilado', cura: 'cura', niño: f ? 'niña' : 'niño',
+      'médico': f ? 'médica' : 'médico', guardia: 'guardia civil' })[v.job] || v.job;
   }
 
   // =====================================================================
@@ -1374,7 +1598,9 @@
     descansar: 'descansando', siesta: 'echándose la siesta', comer: 'comiendo', misa: 'en misa', fiesta: 'de fiesta en la plaza', jugar: 'jugando',
     'ir al cole': 'en la escuela', 'hacer la compra': 'haciendo la compra en la tienda', 'atender la tienda': 'atendiendo la tienda',
     'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra',
-    'en casa': 'en casa con la familia', entierro: 'en el entierro'
+    'en casa': 'en casa con la familia', entierro: 'en el entierro',
+    'ir al médico': 'en el médico', 'pasar consulta': 'pasando consulta', patrullar: 'patrullando el pueblo',
+    empadronarse: 'empadronándose en el ayuntamiento', 'hacer papeles': 'haciendo papeles en el ayuntamiento'
   };
   function moodOf(v) {
     const m = moodScore(v);
@@ -1401,7 +1627,7 @@
     const partner = v.partner && byId(S, v.partner);
     const parents = (v.parents || []).map(function (id) { const p = byId(S, id); if (p) return p.name; const d = (S.deceased || []).find(function (x) { return x.id === id; }); return d ? d.name + ' †' : null; }).filter(Boolean);
     return {
-      fullName: fullName(v), sur: v.sur || '', parents: parents, kids: childrenOf(S, v).map(function (k) { return k.name; }), widow: !!v.widow && !v.partner,
+      fullName: fullName(v), sur: v.sur || '', parents: parents, address: addressOf(BY_ID[v.home]), kids: childrenOf(S, v).map(function (k) { return k.name; }), widow: !!v.widow && !v.partner,
       name: v.name, age: v.age, job: jobName(v), traits: v.traits, act: ACTS[v.act] || v.act, mood: moodOf(v),
       money: isAdult(v) ? Math.round(v.money) : null,
       partner: partner ? partner.name : null,
@@ -1465,12 +1691,18 @@
     }
     S.builds = S.builds || {}; S.milestones = S.milestones || []; S.level = S.level || 1;
     assignFamilies(S);   // apellidos y familias para pueblos de antes del ciclo de vida
+    if (S.map !== MAP_VERSION) {
+      // pueblo guardado con el mapa viejo: mismas casas (h0…h11), nuevas posiciones
+      S.map = MAP_VERSION; S.homeObra = null;
+      Object.keys(S.houses).forEach(function (k) { if (!BY_ID[k]) delete S.houses[k]; });
+      S.villagers.forEach(function (v) { if (!BY_ID[v.home]) v.home = 'h0'; decide(S, v, true); });
+    }
     return S;
   }
 
   return {
     VERSION: VERSION, serialize: serialize, deserialize: deserialize,
-    T: T, COLS: COLS, ROWS: ROWS, W: W, H: H, tileAt: tileAt, TILES: { GRASS: GRASS, PATH: PATH, ROAD: ROAD, PLAZA: PLAZA, FIELD: FIELD, BENCH: BENCH, TREE: TREE, WATER: WATER, BUILD: BUILD, DECOR: DECOR },
+    T: T, COLS: COLS, ROWS: ROWS, W: W, H: H, tileAt: tileAt, TILES: { GRASS: GRASS, PATH: PATH, ROAD: ROAD, PLAZA: PLAZA, FIELD: FIELD, BENCH: BENCH, TREE: TREE, WATER: WATER, BUILD: BUILD, DECOR: DECOR, BRIDGE: BRIDGE, YARD: YARD, ERA: ERA },
     BUILDINGS: BUILDINGS, TREES: TREES, PLAZA: PLAZA_T, FIELD: FIELD_T, FOUNTAIN: FOUNTAIN_T, BENCHES: BENCHES_T, STALL_COLS: STALL_COLS, STALL_ROW: STALL_ROW,
     DAY: DAY, createWorld: createWorld, step: step, fastForward: fastForward, applyPower: applyPower,
     chronicle: chronicle, villagerSummary: villagerSummary, describeVillager: describeVillager, findVillager: findVillager,
@@ -1479,6 +1711,9 @@
     LEVELS: LEVELS, PROJECTS: PROJECTS, MILL: MILL_T, OLIVE: OLIVE_T, LANE_ROW: LANE_ROW, ROAD_ROWS: ROAD_ROWS,
     // ciclo de vida
     CEMETERY: CEMETERY_T, families: families, findDeceased: findDeceased, describeDeceased: describeDeceased, fullName: fullName,
+    // mapa de la fase 2
+    MAP_VERSION: MAP_VERSION, STREETS: STREETS, HOMES: HOMES, LAMPS: LAMPS, FIELDS: FIELDS, ERA: ERA_T, RIVER_PTS: RIVER_PTS, ROAD_PTS: ROAD_PTS,
+    homeProgress: homeProgress, occupants: occupants, addressOf: addressOf, streetName: streetName, building: building,
     isBuilt: isBuilt, buildProgress: buildProgress, townStatus: townStatus, fiestaOn: fiestaOn, moodScore: moodScore, dayOf: dayOf
   };
 });
