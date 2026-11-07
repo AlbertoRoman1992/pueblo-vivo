@@ -401,7 +401,7 @@
       biz: { panaderia: { owner: 'paco', price: PRICES.pan }, bar: { owner: 'manolo', price: PRICES.cana } },
       houses: {}, debts: [], flags: {},
       villagers: [], rel: {}, events: [], nextId: 100,
-      fame: 0, level: 1, fameDay: 0, builds: {}, milestones: []
+      fame: 0, level: 1, fameDay: 0, builds: {}, milestones: [], faith: 50, dilemma: null, dilemmaUsed: {}, followups: []
     };
     milestone(S, '⛪', 'Se funda Pueblo Vivo: 21 vecinos, un bar, una panadería y mucha vida por delante');
     HOMES.forEach(function (b) { if (b.initial) S.houses[b.id] = 0; });
@@ -524,6 +524,9 @@
       Object.keys(S.houses).reduce(function (s, k) { return s + S.houses[k]; }, 0));
     addFame(S, gain);
     S.fameDay = S.fameToday || gain; S.fameToday = 0;
+    // fe diaria: un poco siempre, más con vecinos contentos y devotos (las misas suman aparte)
+    addFaith(S, 2 + happiness(S) / 30 + S.villagers.filter(function (v) { return has(v, 'religioso'); }).length * 0.4);
+    S.faithDay = Math.round(S.faithToday || 0); S.faithToday = 0;
     const lvl = levelFor(S.fame);
     while (S.level < lvl) {
       S.level++;
@@ -968,6 +971,7 @@
   function decide(S, v, teleport) {
     const d = desired(S, v);
     if (d.buy && (v.act !== d.act || v.actPlace !== d.place)) spend(S, v, d);
+    if ((d.act === 'misa' || d.act === 'entierro') && v.act !== d.act) addFaith(S, d.act === 'misa' ? 0.8 : 0.4);
     if (d.act === 'misa' && v.act !== 'misa' && v.job !== 'cura' && isAdult(v) && v.money > 5) {
       const cura = S.villagers.find(function (o) { return o.job === 'cura'; });
       if (cura) pay(S, v, cura.id, 1);
@@ -1036,6 +1040,7 @@
     });
     if (Math.floor(S.time / 5) !== Math.floor(before / 5)) socialTick(S, coarse);
     if (Math.floor(S.time / DAY) !== Math.floor(before / DAY)) newDay(S);
+    if (Math.floor(S.time / 30) !== Math.floor(before / 30)) dilemmaTick(S, before);
   }
 
   function wander(S, v, place) {
@@ -1045,6 +1050,11 @@
   }
 
   function weatherTick(S) {
+    if (S.forceRain && dayOf(S) >= S.forceRain && hourOf(S) >= 12) {   // la lluvia que trajo la procesión
+      S.forceRain = 0; S.weather = 'lluvia'; S.weatherUntil = S.time + 240; S.harvest = clamp(S.harvest + 12, 0, 100);
+      log(S, 'después de la procesión, ¡ha llovido! Las beatas dicen que es un milagro, y los agricultores no las contradicen', '🙏 Llueve tras la procesión', 3);
+      return;
+    }
     if (S.time < S.weatherUntil) return;
     const r = rnd(S), prev = S.weather;
     S.weather = r < 0.12 ? 'lluvia' : r < 0.35 ? 'nubes' : 'sol';
@@ -1412,7 +1422,7 @@
     a.married = b.married = true;
     S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 180); S.fiestaFrom = Math.min(S.fiestaFrom || 0, S.time);
     milestone(S, '💒', 'Boda de ' + a.name + ' y ' + b.name);
-    addFame(S, 20);
+    addFame(S, 20); addFaith(S, 4);
     log(S, '¡' + a.name + ' y ' + b.name + ' se han casado! Hubo boda y verbena en la plaza', '💒 Boda de ' + a.name + ' y ' + b.name, 4, [a.id, b.id]);
   }
 
@@ -1427,9 +1437,59 @@
   // =====================================================================
   // PODERES DEL SANTO PATRÓN
   // =====================================================================
+  // Lo que cuesta cada poder en fe. La fe sube con las misas, las fiestas, las bodas y los vecinos contentos.
+  const POWER_COST = { sol: 8, lluvia: 10, fiesta: 15, forastero: 20, bendecir: 25, loteria: 35, estrellas: 30, aparicion: 60, langostas: 0 };
+  function faithOf(S) { if (S.faith === undefined) S.faith = 50; return S.faith; }
+  function addFaith(S, n) { S.faith = clamp(faithOf(S) + n, 0, 100); S.faithToday = (S.faithToday || 0) + n; }
+  function canAfford(S, power) { return faithOf(S) >= (POWER_COST[power] || 0); }
   function applyPower(S, power, opts) {
+    const cost = POWER_COST[power] || 0;
+    if (!canAfford(S, power)) {
+      return 'Al santo no le queda fe suficiente: hacen falta ' + cost + ' puntos y ahora hay ' + Math.floor(faithOf(S)) + '. La fe sube con las misas, las fiestas y los vecinos contentos.';
+    }
+    const text = applyPowerInner(S, power, opts);
+    if (text) S.faith = clamp(faithOf(S) - cost, 0, 100);
+    return text;
+  }
+  function applyPowerInner(S, power, opts) {
     opts = opts || {};
     switch (power) {
+      case 'aparicion': {
+        // el santo se aparece en la plaza: todo el pueblo lo ve, nadie lo olvida
+        S.apparitionUntil = S.time + 90;
+        S.villagers.forEach(function (v) {
+          v.needs.social = clamp(v.needs.social - 40, 0, 100); v.needs.energy = clamp(v.needs.energy + 20, 0, 100);
+          remember(v, 'milagro', null, 0, S.time);
+          if (v.act !== 'dormir' && !v.inside) v.actUntil = S.time;
+        });
+        const cura = S.villagers.find(function (o) { return o.job === 'cura'; });
+        if (cura) S.villagers.forEach(function (o) { if (has(o, 'religioso')) addRel(S, o.id, cura.id, 8); });
+        addFame(S, 15);
+        log(S, '¡el santo se ha aparecido sobre la fuente de la plaza! Medio pueblo lo vio, y la otra mitad dice que también', '😇 ¡Aparición del santo en la plaza!', 4);
+        milestone(S, '😇', 'El santo se aparece sobre la fuente de la plaza');
+        return 'Una luz dorada baja sobre la fuente de la plaza. El pueblo entero se queda sin palabras.';
+      }
+      case 'estrellas': {
+        // lluvia de estrellas: esta noche, amores
+        const today = Math.floor(S.time / DAY) * DAY, from = hourOf(S) < 21 ? today + 21.5 * 60 : S.time;
+        S.starsFrom = from; S.starsUntil = from + 4 * 60;
+        const singles = S.villagers.filter(single);
+        for (let k = 0; k < 3 && singles.length > 1; k++) {
+          const a = pick(S, singles), b = pick(S, singles.filter(function (o) { return o !== a && Math.abs(o.age - a.age) <= 15; }));
+          if (b) addRel(S, a.id, b.id, 15);
+        }
+        log(S, 'esta noche habrá lluvia de estrellas, y en el pueblo ya hay quien piensa pedir un deseo en compañía', '🌠 Lluvia de estrellas esta noche', 2);
+        return 'Esta noche habrá lluvia de estrellas. Dicen que trae amores.';
+      }
+      case 'langostas': {
+        // castigo: plaga en el campo; el miedo llena la iglesia
+        S.locustUntil = S.time + 180;
+        S.harvest = clamp(S.harvest - 35, 0, 100);
+        S.villagers.forEach(function (v) { v.needs.social = clamp(v.needs.social + 15, 0, 100); if (v.job === 'agricultor' && isAdult(v)) v.money = Math.max(0, v.money - 20); });
+        addFaith(S, 15);
+        log(S, 'una plaga de langostas ha arrasado el campo. Las beatas dicen que es un castigo, y la iglesia se ha llenado de golpe', '🦗 Plaga de langostas en el campo', 3);
+        return 'Una nube de langostas cae sobre los campos. Castigo divino, dicen. La iglesia se llena.';
+      }
       case 'lluvia':
         S.weather = 'lluvia'; S.weatherUntil = S.time + 180; S.harvest = clamp(S.harvest + 8, 0, 100);
         if (fiestaOn(S)) {
@@ -1458,6 +1518,156 @@
         return stranger(S, opts.name);
       default:
         return null;
+    }
+  }
+
+  // =====================================================================
+  // DILEMAS DEL SANTO: casi cada mañana el pueblo pide que decidas algo
+  // =====================================================================
+  function later(S, text, short, imp) { S.followups.push({ day: dayOf(S) + 1, text: text, short: short, imp: imp || 2 }); }
+  function adultsWhere(S, f) { return adults(S).filter(function (v) { return v.job !== 'cura' && f(v); }); }
+  function orchestra(S, startH, hours) {   // fiesta de mañana a esa hora
+    const tomorrow = (Math.floor(S.time / DAY) + 1) * DAY;
+    S.fiestaFrom = tomorrow + startH * 60; S.fiestaUntil = S.fiestaFrom + hours * 60;
+  }
+  function collect(S, amount, to) {   // cada adulto con dinero pone su parte
+    let total = 0;
+    adultsWhere(S, function (v) { return v.money > amount * 3 && v !== to; }).forEach(function (v) { v.money -= amount; total += amount; });
+    if (to) to.money += total;
+    return total;
+  }
+  const DILEMMAS = [
+    { id: 'iglesia_puente', every: 8,
+      when: function (S) { return {}; },
+      text: function (S, c) { return 'El tejado de la iglesia tiene goteras y el puente del río cruje. En el ayuntamiento solo hay dinero para una obra.'; },
+      opts: [
+        { label: 'Arreglar la iglesia', apply: function (S) { addFaith(S, 15); const cura = S.villagers.find(function (o) { return o.job === 'cura'; }); later(S, 'ya han arreglado el tejado de la iglesia' + (cura ? ': ' + cura.name + ' da misa sin goteras' : ''), '⛪ Iglesia sin goteras'); return 'Se arregla la iglesia. Los devotos te lo agradecen (+15 de fe).'; } },
+        { label: 'Arreglar el puente', apply: function (S) { addFame(S, 10); adultsWhere(S, function (v) { return v.job === 'agricultor'; }).forEach(function (v) { v.needs.social = clamp(v.needs.social - 15, 0, 100); }); later(S, 'el puente del río ya no cruje: los agricultores cruzan sin miedo con el remolque', '🌉 Puente arreglado'); return 'Se arregla el puente. Los agricultores, encantados (+10 de fama).'; } }
+      ], none: 'Como nadie se puso de acuerdo, no se arregló ni la iglesia ni el puente' },
+    { id: 'robo', every: 6,
+      when: function (S) {
+        const x = adultsWhere(S, function (v) { return v.money < 25; })[0], y = x && adultsWhere(S, function (v) { return v.money > 200 && v !== x; })[0];
+        return x && y ? { x: x.id, y: y.id } : null;
+      },
+      text: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); return 'Han pillado a ' + x.name + ' robándole gallinas a ' + y.name + '. Dice que no llega a fin de mes.'; },
+      opts: [
+        { label: 'Perdonarle', apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); addRel(S, y.id, x.id, -10); remember(x, 'favor', y.id, 0, S.time); x.needs.social = clamp(x.needs.social - 20, 0, 100); addFaith(S, 5); later(S, x.name + ' le ha devuelto las gallinas a ' + y.name + ' con una docena de huevos de propina', '🥚 ' + x.name + ' devuelve las gallinas'); return x.name + ' se libra. ' + y.name + ' refunfuña, pero el pueblo aplaude tu clemencia.'; } },
+        { label: 'Que pague una multa', apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); if (!pay(S, x, y.id, 20)) x.money = 0; addRel(S, x.id, y.id, -15); remember(x, 'rencor', y.id, 20, S.time); addFame(S, 3); later(S, x.name + ' está trabajando en el corral de ' + y.name + ' para pagar lo que debe', '🐔 ' + x.name + ' paga su multa'); return x.name + ' paga la multa. ' + y.name + ' queda ' + g(y, 'satisfecho', 'satisfecha') + '; ' + x.name + ', no tanto.'; } }
+      ], def: 1 },
+    { id: 'orquesta', every: 7,
+      when: function (S) { return fiestaOn(S) ? null : {}; },
+      text: function () { return 'La comisión de fiestas quiere traer una orquesta mañana por la noche. Cada vecino tendría que poner 8 euros.'; },
+      opts: [
+        { label: 'Traer la orquesta', apply: function (S) { collect(S, 8); orchestra(S, 21, 5); S.villagers.forEach(function (v) { if (has(v, 'juerguista')) v.needs.social = clamp(v.needs.social - 20, 0, 100); }); return 'Mañana a las nueve, ¡orquesta en la plaza!'; } },
+        { label: 'Ahorrar el dinero', apply: function (S) { S.villagers.forEach(function (v) { if (has(v, 'juerguista')) v.needs.social = clamp(v.needs.social + 20, 0, 100); if (has(v, 'ahorrador')) v.needs.social = clamp(v.needs.social - 10, 0, 100); }); return 'Los ahorradores respiran tranquilos. Los juerguistas, no.'; } }
+      ], def: 1 },
+    { id: 'temporeros', every: 10,
+      when: function (S) { return S.villagers.length < 40 ? {} : null; },
+      text: function () { return 'Una pareja de temporeros que vino a la vendimia pregunta si se puede quedar a vivir en el pueblo.'; },
+      opts: [
+        { label: 'Acogerlos', apply: function (S) { stranger(S, null, 'agricultor'); const a = S.villagers[S.villagers.length - 1]; stranger(S, null, 'agricultor'); const b = S.villagers[S.villagers.length - 1]; if (a.sex !== b.sex || rnd(S) < 0.3) { a.partner = b.id; b.partner = a.id; a.married = b.married = true; setRel(S, a.id, b.id, 80); b.home = a.home; b.sur = a.sur; } return 'Bienvenidos: ' + a.name + ' y ' + b.name + ' se quedan en el pueblo.'; } },
+        { label: 'Que sigan su camino', apply: function (S) { addFaith(S, -5); return 'Los temporeros se van por la carretera. Alguno en la plaza te lo reprocha (−5 de fe).'; } }
+      ], def: 1 },
+    { id: 'linde', every: 8,
+      when: function (S) {
+        const f = adultsWhere(S, function (v) { return v.job === 'agricultor'; });
+        for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) if (getRel(S, f[i].id, f[j].id) < 15 && f[i].home !== f[j].home) return { x: f[i].id, y: f[j].id };
+        return null;
+      },
+      text: function (S, c) { return byId(S, c.x).name + ' y ' + byId(S, c.y).name + ' discuten por una linde del campo. Cada uno jura que el mojón estaba en otro sitio.'; },
+      opts: [
+        { label: function (S, c) { return 'Dar la razón a ' + byId(S, c.x).name; }, apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); x.needs.social = clamp(x.needs.social - 20, 0, 100); addRel(S, y.id, x.id, -15); remember(y, 'rencor', x.id, 0, S.time); return x.name + ' se queda con la linde. ' + y.name + ' no se lo perdona.'; } },
+        { label: function (S, c) { return 'Dar la razón a ' + byId(S, c.y).name; }, apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); y.needs.social = clamp(y.needs.social - 20, 0, 100); addRel(S, x.id, y.id, -15); remember(x, 'rencor', y.id, 0, S.time); return y.name + ' se queda con la linde. ' + x.name + ' no se lo perdona.'; } }
+      ], none: 'Como el santo no dijo nada, la linde sigue en disputa y la cosa acabó a gritos' },
+    { id: 'declaracion', every: 6,
+      when: function (S) {
+        const s = S.villagers.filter(single);
+        for (let i = 0; i < s.length; i++) for (let j = 0; j < s.length; j++) {
+          const r = getRel(S, s[i].id, s[j].id);
+          if (i !== j && r >= 25 && r < 60 && Math.abs(s[i].age - s[j].age) <= 15) return { x: s[i].id, y: s[j].id };
+        }
+        return null;
+      },
+      text: function (S, c) { return byId(S, c.x).name + ' quiere declararse a ' + byId(S, c.y).name + ', pero le da vergüenza. Ha encendido una vela al santo pidiendo consejo.'; },
+      opts: [
+        { label: 'Que se lance', apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); if (getRel(S, x.id, y.id) >= 35 || has(y, 'romántico') || rnd(S) < 0.5) { startDating(S, x, y, x.name + ' se le declaró a ' + y.name + ' animado por el santo, ¡y ' + y.name + ' le dijo que sí!'); return '¡' + y.name + ' le ha dicho que sí a ' + x.name + '!'; } addRel(S, x.id, y.id, -8); x.needs.social = clamp(x.needs.social + 30, 0, 100); log(S, x.name + ' se le declaró a ' + y.name + ', y ' + y.name + ' le dijo que mejor como amigos', '💔 Calabazas para ' + x.name, 3, [x.id, y.id]); return 'Calabazas. ' + y.name + ' prefiere que sean amigos.'; } },
+        { label: 'Mejor esperar', apply: function (S, c) { const x = byId(S, c.x), y = byId(S, c.y); x.crush = y.id; addRel(S, x.id, y.id, 6); return x.name + ' esperará. Mientras, se hace el encontradizo con ' + y.name + '.'; } }
+      ], def: 1 },
+    { id: 'colecta', every: 9,
+      when: function (S) { const k = Object.keys(S.biz).find(function (b) { const o = byId(S, S.biz[b].owner); return o && o.money < 120; }); return k ? { b: k } : null; },
+      text: function (S, c) { const o = byId(S, S.biz[c.b].owner); return 'A ' + o.name + ' le va mal ' + (BY_ID[c.b] ? BY_ID[c.b].name : 'el negocio') + ' y no llega a pagar las facturas. Hay quien propone una colecta.'; },
+      opts: [
+        { label: 'Hacer una colecta', apply: function (S, c) { const o = byId(S, S.biz[c.b].owner), t = collect(S, 10, o); adults(S).forEach(function (v) { if (v !== o) addRel(S, o.id, v.id, 5); }); return 'El pueblo reúne ' + euros(t) + ' para ' + o.name + '.'; } },
+        { label: 'Que se apañe', apply: function (S, c) { const biz = S.biz[c.b], o = byId(S, biz.owner); biz.price = Math.round((biz.price + 0.5) * 100) / 100; o.needs.social = clamp(o.needs.social + 25, 0, 100); later(S, o.name + ' ha tenido que subir los precios para salir adelante', '💶 ' + o.name + ' sube los precios'); return o.name + ' tendrá que subir los precios.'; } }
+      ], def: 1 },
+    { id: 'sequia', every: 6,
+      when: function (S) { return S.harvest < 45 ? {} : null; },
+      text: function () { return 'El campo se está secando. El cura propone sacar al santo en procesión; los agricultores prefieren cavar un pozo nuevo.'; },
+      opts: [
+        { label: 'Procesión', apply: function (S) { addFaith(S, 10); S.forceRain = dayOf(S) + 1; return 'Mañana sale la procesión. Y dicen que después lloverá…'; } },
+        { label: 'Pozo nuevo', apply: function (S) { collect(S, 10); S.harvest = clamp(S.harvest + 20, 0, 100); later(S, 'ya hay pozo nuevo en el campo: el agua sale fresquísima', '💧 Pozo nuevo en el campo'); return 'Se cava el pozo: la cosecha respira (+20 %).'; } }
+      ], def: 1 },
+    { id: 'joven', every: 8,
+      when: function (S) { const x = adultsWhere(S, function (v) { return v.age <= 30 && !v.partner && moodScore(v) < 60 && !Object.keys(S.biz).some(function (b) { return S.biz[b].owner === v.id; }); })[0]; return x && S.villagers.length > 14 ? { x: x.id } : null; },
+      text: function (S, c) { return byId(S, c.x).name + ' dice que en el pueblo no hay futuro y que se quiere ir a la ciudad.'; },
+      opts: [
+        { label: 'Convencerle para quedarse', apply: function (S, c) { const x = byId(S, c.x); x.needs.social = clamp(x.needs.social - 40, 0, 100); x.money += 60; remember(x, 'favor', null, 0, S.time); addFaith(S, -5); later(S, x.name + ' ha encontrado trabajo en el pueblo y ya no habla de marcharse', '🙌 ' + x.name + ' se queda'); return x.name + ' se queda. Le ha salido un trabajillo (−5 de fe).'; } },
+        { label: 'Dejarle marchar', apply: function (S, c) { const x = byId(S, c.x), dest = pick(S, ['Madrid', 'Barcelona', 'Valencia', 'Bilbao', 'Sevilla']); removeVillager(S, x, false); S.stats.left++; milestone(S, '🚌', x.name + ' se marcha a ' + dest + ' con la bendición del santo'); return x.name + ' se va a ' + dest + '. Le despiden en la parada del autobús.'; } }
+      ], def: 1 },
+    { id: 'vaquilla', every: 10,
+      when: function (S) { return S.level >= 2 && !fiestaOn(S) ? {} : null; },
+      text: function () { return 'Para las fiestas de mañana, unos quieren un concurso de paellas y otros, una vaquilla en la plaza.'; },
+      opts: [
+        { label: 'Concurso de paellas', apply: function (S) { orchestra(S, 13, 4); S.villagers.forEach(function (v) { v.needs.hunger = clamp(v.needs.hunger - 20, 0, 100); }); later(S, 'el concurso de paellas lo ganó ' + pick(S, adults(S)).name + ', y todavía hay quien dice que llevaba demasiado azafrán', '🥘 Concurso de paellas'); return 'Mañana a la una, ¡paellas en la plaza!'; } },
+        { label: 'Vaquilla', apply: function (S) { orchestra(S, 18, 4); const j = S.villagers.filter(function (v) { return has(v, 'juerguista') && isAdult(v); }); j.forEach(function (v) { v.needs.social = clamp(v.needs.social - 30, 0, 100); }); if (j.length && rnd(S) < 0.4) { const h = pick(S, j); h.money = Math.max(0, h.money - 30); later(S, 'la vaquilla le dio un revolcón a ' + h.name + ', que se pasará unos días con el brazo en cabestrillo', '🐂 Revolcón para ' + h.name, 3); } else later(S, 'la vaquilla fue un éxito y nadie acabó en el consultorio', '🐂 Vaquilla sin sustos'); return 'Mañana por la tarde, ¡vaquilla! Que el santo nos pille confesados.'; } }
+      ], def: 0 },
+    { id: 'campanas', every: 9,
+      when: function (S) { const cura = S.villagers.find(function (o) { return o.job === 'cura'; }), gr = adultsWhere(S, function (v) { return has(v, 'gruñón'); }); return cura && gr.length ? { c: cura.id, g: gr[0].id } : null; },
+      text: function (S, c) { return byId(S, c.c).name + ' quiere tocar las campanas a las siete de la mañana. ' + byId(S, c.g).name + ' y otros vecinos amenazan con quejarse.'; },
+      opts: [
+        { label: 'Que suenen las campanas', apply: function (S, c) { addFaith(S, 8); adultsWhere(S, function (v) { return has(v, 'gruñón'); }).forEach(function (v) { addRel(S, v.id, c.c, -8); }); return 'Las campanas suenan al alba (+8 de fe). Los gruñones, más gruñones.'; } },
+        { label: 'Que haya silencio', apply: function (S, c) { addFaith(S, -4); const cura = byId(S, c.c); if (cura) cura.needs.social = clamp(cura.needs.social + 20, 0, 100); return 'Silencio por las mañanas. ' + byId(S, c.c).name + ' está dolido (−4 de fe).'; } }
+      ], def: 0 }
+  ];
+  function dilemmaDef(id) { return DILEMMAS.find(function (d) { return d.id === id; }); }
+  function optLabel(S, d, o, ctx) { return typeof o.label === 'function' ? o.label(S, ctx) : o.label; }
+  function ctxAlive(S, ctx) { return Object.keys(ctx || {}).every(function (k) { return k === 'b' || byId(S, ctx[k]); }); }
+  function newDilemma(S) {
+    const day = dayOf(S), used = S.dilemmaUsed;
+    const opts = DILEMMAS.filter(function (d) { return !used[d.id] || day - used[d.id] >= d.every; })
+      .map(function (d) { return { d: d, ctx: d.when(S) }; }).filter(function (x) { return x.ctx; });
+    if (!opts.length) return;
+    const p = pick(S, opts);
+    used[p.d.id] = day;
+    S.dilemma = { id: p.d.id, ctx: p.ctx, day: day, text: p.d.text(S, p.ctx), opts: p.d.opts.map(function (o) { return optLabel(S, p.d, o, p.ctx); }), until: Math.round(S.time + 13 * 60) };
+    log(S, 'el pueblo le pide al santo que decida: ' + S.dilemma.text.charAt(0).toLowerCase() + S.dilemma.text.slice(1), '📜 El pueblo te pide consejo', 2);
+  }
+  function answerDilemma(S, idx, auto) {
+    const dl = S.dilemma; if (!dl) return null;
+    const d = dilemmaDef(dl.id); S.dilemma = null;
+    if (!d || !ctxAlive(S, dl.ctx)) return 'Ese asunto ya se ha resuelto solo.';
+    if (idx === null || idx === undefined || idx < 0) {
+      if (d.none) { log(S, d.none.charAt(0).toLowerCase() + d.none.slice(1), '🤷 El santo no dijo nada', 2); return d.none + '.'; }
+      idx = d.def || 0;
+    }
+    const o = d.opts[idx]; if (!o) return null;
+    const res = o.apply(S, dl.ctx);
+    const label = optLabel(S, d, o, dl.ctx);
+    log(S, (auto ? 'como el santo no dijo nada, el pueblo decidió: ' : 'el santo decidió: ') + label.toLowerCase() + '. ' + res, (auto ? '🤷 Sin respuesta: ' : '📜 El santo decide: ') + label, 3);
+    if (!auto) addFaith(S, 2);
+    return res;
+  }
+  function dilemmaTick(S, before) {
+    const h0 = hourOf({ time: before }), h1 = hourOf(S);
+    // por la mañana: consecuencias de lo que se decidió ayer
+    if (S.followups && S.followups.length && h1 >= 9) {
+      const d = dayOf(S);
+      S.followups = S.followups.filter(function (f) { if (f.day > d) return true; log(S, f.text, f.short, f.imp); return false; });
+    }
+    if (S.dilemma && S.time > S.dilemma.until) answerDilemma(S, -1, true);
+    if (!S.dilemma && h0 < 10 && h1 >= 10 && S.lastDilemmaDay !== dayOf(S)) {
+      S.lastDilemmaDay = dayOf(S);
+      if (rnd(S) < 0.8) newDilemma(S);
     }
   }
 
@@ -1690,6 +1900,8 @@
       S.milestones = [{ d: 1, t: 0, i: '⛪', text: 'Se funda Pueblo Vivo' }];
     }
     S.builds = S.builds || {}; S.milestones = S.milestones || []; S.level = S.level || 1;
+    if (S.faith === undefined) S.faith = 50;
+    S.dilemmaUsed = S.dilemmaUsed || {}; S.followups = S.followups || [];
     assignFamilies(S);   // apellidos y familias para pueblos de antes del ciclo de vida
     if (S.map !== MAP_VERSION) {
       // pueblo guardado con el mapa viejo: mismas casas (h0…h11), nuevas posiciones
@@ -1714,6 +1926,8 @@
     // mapa de la fase 2
     MAP_VERSION: MAP_VERSION, STREETS: STREETS, HOMES: HOMES, LAMPS: LAMPS, FIELDS: FIELDS, ERA: ERA_T, RIVER_PTS: RIVER_PTS, ROAD_PTS: ROAD_PTS,
     homeProgress: homeProgress, occupants: occupants, addressOf: addressOf, streetName: streetName, building: building,
+    // fe y dilemas
+    POWER_COST: POWER_COST, canAfford: canAfford, faithOf: faithOf, answerDilemma: answerDilemma, DILEMMA_IDS: DILEMMAS.map(function (d) { return d.id; }),
     isBuilt: isBuilt, buildProgress: buildProgress, townStatus: townStatus, fiestaOn: fiestaOn, moodScore: moodScore, dayOf: dayOf
   };
 });

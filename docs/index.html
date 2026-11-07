@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
-<script src="sim.js?v=5"></script>
+<script src="sim.js?v=6"></script>
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -31,6 +31,30 @@
   .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(#f3c85e, #d9962f); transition: width .8s; }
   #town .tstats { font-size: .78em; display: flex; justify-content: space-between; }
   #town .tnext { font-size: .66em; opacity: .8; margin-top: .15em; }
+  #town .tfaith { display: flex; align-items: center; gap: .35em; font-size: .78em; margin-top: .15em; }
+  #town .tfaith .bar { flex: 1; margin: 0; }
+  .bar.faith > i { background: linear-gradient(#b9d7f5, #6f9fd6); }
+  #dock button .cost, #miracles .cost { position: absolute; top: 2px; right: 3px; font-size: .75em; font-weight: 700; color: #3f5f8f; }
+  #dock button.poor .ic, #miracles button.poor .ic { filter: grayscale(1); opacity: .4; }
+  #dock button.poor .cost, #miracles button.poor .cost { color: #b8452c; }
+  #miracles { right: 1.4vmin; bottom: calc(1.6vmin + clamp(48px, 11vmin, 104px) * 2.1); display: none; font-size: clamp(12px, 2.6vmin, 24px); width: clamp(230px, 46vmin, 420px); }
+  #miracles.on { display: block; }
+  #miracles .mtitle { font-weight: 700; margin-bottom: .3em; }
+  #miracles button { font: inherit; color: var(--ink); width: 100%; display: flex; align-items: center; gap: .5em; text-align: left; background: var(--paper-2); border: 2px solid var(--ink); border-radius: 10px; padding: .3em .5em; margin-top: .35em; cursor: pointer; position: relative; }
+  #miracles button .ic { font-size: 1.6em; }
+  #miracles button small { opacity: .8; }
+  #dilemma { left: 50%; transform: translateX(-50%); top: 10vmin; width: min(70vw, 640px); display: none; font-size: clamp(13px, 2.9vmin, 27px); border-width: 4px; box-shadow: 0 6px 0 rgba(0,0,0,.4); }
+  #dilemma.on { display: block; animation: drop .45s cubic-bezier(.2,1.5,.4,1); }
+  @keyframes drop { from { transform: translate(-50%, -40px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+  #dilemma .dt { font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; }
+  #dilemma .dt small { font-weight: 400; opacity: .7; font-size: .7em; }
+  #dilemma p { margin: .35em 0 .5em; }
+  #dilemma .opts { display: flex; gap: .6em; }
+  #dilemma .opts button { flex: 1; font: inherit; font-weight: 600; color: var(--ink); background: var(--gold); border: 3px solid var(--ink); border-radius: 12px; padding: .45em .5em; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,.35); }
+  #dilemma .opts button + button { background: #b9d7f5; }
+  #dilemma .opts button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  #dilemma .later { font: inherit; font-size: .7em; background: none; border: 0; color: var(--ink); opacity: .7; margin-top: .4em; cursor: pointer; text-decoration: underline; }
+  #dilemma-pill { left: 50%; transform: translateX(-50%); top: 10vmin; display: none; cursor: pointer; font-size: clamp(12px, 2.6vmin, 24px); background: var(--gold); animation: pulse 1.6s ease-in-out infinite; }
   #town.pulse { animation: pulse 1.2s ease-in-out 3; }
   @keyframes pulse { 50% { transform: scale(1.06); box-shadow: 0 0 0 6px rgba(232,181,74,.6), 0 4px 0 rgba(0,0,0,.35); } }
   #ticker { left: 1.4vmin; bottom: 1.6vmin; max-width: 46vw; font-size: clamp(12px, 2.8vmin, 28px); display: flex; gap: .5em; align-items: center; transition: opacity .6s; overflow: hidden; }
@@ -120,6 +144,7 @@
     <div class="tlevel" id="t-level">Aldea</div>
     <div class="bar"><i id="t-bar"></i></div>
     <div class="tstats"><span>👥 <b id="t-pop">21</b></span><span>😊 <b id="t-happy">70</b>%</span><span>🌾 <b id="t-harv">55</b>%</span></div>
+    <div class="tfaith" title="Fe: la gastan tus poderes y sube con misas, fiestas y vecinos contentos">🙏 <span class="bar faith"><i id="t-faith"></i></span><b id="t-faith-n">50</b></div>
     <div class="tnext" id="t-next"></div>
   </div>
   <div id="zoom"><button id="z-in" title="Acercar">＋</button><button id="z-out" title="Alejar">－</button><button id="z-home" title="Volver a la plaza">⌂</button></div>
@@ -132,9 +157,18 @@
     <button data-p="forastero"><span class="ic">🧳</span>Forastero<span class="cd"></span></button>
     <button data-p="bendecir"><span class="ic">✨</span>Bendecir<span class="cd"></span></button>
     <button data-p="loteria"><span class="ic">🎟️</span>Lotería<span class="cd"></span></button>
+    <button id="btn-miracles" class="alt"><span class="ic">😇</span>Milagros</button>
     <button id="btn-book" class="alt"><span class="ic">📖</span>Libro</button>
     <button id="speed" class="alt"><span class="ic">⏩</span><span id="speed-l">x1</span></button>
   </div>
+  <div id="miracles" class="pill">
+    <div class="mtitle">Milagros y castigos</div>
+    <button data-p="estrellas"><span class="ic">🌠</span><span><b>Lluvia de estrellas</b><br><small>Esta noche, amores</small></span><span class="cost"></span></button>
+    <button data-p="aparicion"><span class="ic">😇</span><span><b>Aparición del santo</b><br><small>Todo el pueblo, feliz</small></span><span class="cost"></span></button>
+    <button data-p="langostas"><span class="ic">🦗</span><span><b>Plaga de langostas</b><br><small>Castigo: arrasa la cosecha, llena la iglesia</small></span><span class="cost"></span></button>
+  </div>
+  <div id="dilemma" class="pill"></div>
+  <div id="dilemma-pill" class="pill">📜 El pueblo te pide consejo · tócame</div>
   <div id="card" class="pill"></div>
   <div id="toast" class="pill"></div>
   <div id="banner"><div class="b-sub" id="b-sub"></div><div class="b-title" id="b-title"></div><div class="b-stars" id="b-stars"></div><div class="b-list" id="b-list"></div></div>
@@ -162,7 +196,7 @@
   const OFFLINE_RATE = 24 / 60;       // minutos de juego por segundo real sin mirar (1 día por hora)
   const OFFLINE_CAP = 3 * P.DAY;      // máximo 3 días de avance al volver
   const SPEEDS = [1, 5, 20];
-  const COOLDOWN = { forastero: 180, loteria: 1440 };
+  const COOLDOWN = { forastero: 180, loteria: 1440, aparicion: 720, estrellas: 1440, langostas: 1440 };
   let speedIdx = Math.max(0, SPEEDS.indexOf(Number(params.get('speed')) || 1));
   let S = null, alexa = null, lastSave = 0, selected = null, selectedB = null, bgKey = '';
   const cool = {};
@@ -841,6 +875,20 @@
       nextRocket = t + 350 + Math.random() * 500;
       sparkle(Q.c * T + Math.random() * Q.w * T, Q.r * T - 40 - Math.random() * 60, 26, [['#ffd34d', '#ffef9a'], ['#e84a4a', '#ff9a8a'], ['#4aa3e8', '#bfe3f5'], ['#5ec46a', '#b8f0a0']][Math.floor(Math.random() * 4)]);
     }
+    // milagros y castigos
+    if (S.time < (S.apparitionUntil || 0)) {
+      const ax = (P.FOUNTAIN.c + 1) * T, ay = (P.FOUNTAIN.r + 1) * T - 22 + Math.sin(t / 500) * 2;
+      const gr = g.createLinearGradient(0, ay - 60, 0, ay + 24); gr.addColorStop(0, 'rgba(255,230,140,0)'); gr.addColorStop(.5, 'rgba(255,230,140,.35)'); gr.addColorStop(1, 'rgba(255,230,140,0)');
+      g.fillStyle = gr; g.fillRect(ax - 14, ay - 60, 28, 84);
+      g.strokeStyle = '#ffd34d'; g.lineWidth = 1; g.beginPath(); g.ellipse(ax, ay - 12, 5, 2, 0, 0, 7); g.stroke();
+      rect(g, ax - 4, ay - 6, 9, 14, '#f4f1ea'); rect(g, ax - 4, ay - 6, 9, 4, '#4a7fc0'); rect(g, ax - 2, ay - 10, 5, 4, '#f0c29a'); rect(g, ax - 2, ay - 11, 5, 1, '#5a3a2a');
+      rect(g, ax - 7, ay - 3, 3, 1, '#f4f1ea'); rect(g, ax + 5, ay - 3, 3, 1, '#f4f1ea');
+      if (Math.random() < dt / 120) sparkle(ax + (Math.random() - .5) * 20, ay - 10, 4, ['#ffd34d', '#ffffff']);
+    }
+    if (S.time < (S.locustUntil || 0)) {
+      const F = P.FIELD; g.fillStyle = '#3a3420';
+      for (let i = 0; i < 90; i++) { const x = (F.c + (i * 37 % F.w)) * T + Math.sin(t / 300 + i) * 10, y = (F.r + (i * 13 % F.h)) * T + Math.cos(t / 250 + i * 1.7) * 8 - 6; if (inView(x, y)) g.fillRect(x | 0, y | 0, 2, 1); }
+    }
     // sombras de nubes (en coordenadas del mundo)
     const nCl = S.weather === 'nubes' ? 7 : S.weather === 'sol' ? 3 : 0;
     for (let i = 0; i < nCl; i++) {
@@ -877,6 +925,13 @@
       if (lamps > 0) { const n = Math.ceil(P.LAMPS.length * lamps); for (let i = 0; i < n; i++) { const p = P.LAMPS[i]; if (!inView(p[0], p[1])) continue; g.fillStyle = 'rgba(255,214,130,' + (.2 * glow).toFixed(3) + ')'; g.beginPath(); g.ellipse(p[0], p[1] - 4, 13, 9, 0, 0, 7); g.fill(); rect(g, p[0] - 1, p[1] - 14, 3, 2, '#fff1b0'); } }
       if (fiesta || XMAS) for (let x = x0; x < x1; x += 4) { const sag = Math.round(4 * Math.sin(Math.PI * (x - x0) / (x1 - x0))); g.fillStyle = 'rgba(255,220,140,' + (.35 * glow).toFixed(3) + ')'; g.fillRect(x - 1, Q.r * T + 1 + sag, 4, 4); }
       parts.forEach(function (p) { if (p.k === 'f') rect(g, p.x, p.y, 1, 1, p.col); });
+      // lluvia de estrellas
+      if (S.time >= (S.starsFrom || 1e12) && S.time < (S.starsUntil || 0)) {
+        for (let i = 0; i < 4; i++) {
+          const ph = ((t / 1400) + i * .37) % 1, sx = left + ((i * 211 + Math.floor(t / 1400 + i * .37) * 97) % 100) / 100 * VW, sy = top + 10 + ((i * 53 + Math.floor(t / 1400 + i * .37) * 31) % 40) / 100 * VH;
+          if (ph < .5) for (let k = 0; k < 10; k++) { g.fillStyle = 'rgba(255,255,230,' + (1 - k / 10) * (1 - ph * 2) + ')'; g.fillRect(sx + ph * 120 - k * 3, sy + ph * 50 - k * 1.25, 2, 1); }
+        }
+      }
       g.setTransform(1, 0, 0, 1, 0, 0);
     }
     drawUI();
@@ -954,6 +1009,15 @@
     $('t-pop').textContent = st.pop; $('t-happy').textContent = st.happy; $('t-harv').textContent = st.harvest;
     const obra = st.projects.find(function (p) { return p.state === 'obras'; });
     $('t-next').textContent = obra ? '🚧 Obras: ' + obra.name + ' (' + Math.round(obra.progress * 100) + '%)' : st.nextName ? 'Siguiente: ' + st.nextName + ' · ' + st.fame + '/' + st.to : '¡Lo más alto!';
+    const fe = Math.floor(P.faithOf(S));
+    $('t-faith').style.width = fe + '%'; $('t-faith-n').textContent = fe;
+    document.querySelectorAll('#dock button[data-p], #miracles button[data-p]').forEach(function (b) {
+      const c = P.POWER_COST[b.dataset.p] || 0;
+      let el = b.querySelector('.cost'); if (!el) { el = document.createElement('span'); el.className = 'cost'; b.appendChild(el); }
+      el.textContent = c ? c : '+15';
+      b.classList.toggle('poor', fe < c);
+    });
+    showDilemma();
     S.events.slice(-12).forEach(function (e) {
       if (seen.has(e)) return; seen.add(e);
       news.push(e.short);
@@ -980,7 +1044,9 @@
     clearTimeout(idleTimer); idleTimer = setTimeout(function () { $('ticker').style.opacity = .6; }, 9000);
   }
   let toastTimer = 0;
-  function toast(text, ms) { const el = $('toast'); el.textContent = text; el.style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.style.opacity = 0; }, ms || 3800); }
+  function toast(text, ms) {
+    const el = $('toast'), dl = $('dilemma'); el.textContent = text; el.style.opacity = 1;
+    el.style.top = dl.classList.contains('on') ? Math.round(dl.getBoundingClientRect().bottom + 12) + 'px' : ''; clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.style.opacity = 0; }, ms || 3800); }
   let bannerTimer = 0;
   function banner(sub, title, starsN, list, ms) {
     $('b-sub').textContent = sub; $('b-title').textContent = title; $('b-stars').textContent = starsN ? stars(starsN) : ''; $('b-list').textContent = list || '';
@@ -1206,7 +1272,40 @@
   $('z-in').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1.35); });
   $('z-out').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1 / 1.35); });
   $('z-home').addEventListener('click', function (e) { e.stopPropagation(); lastInput = performance.now(); cam.tz = 1; focus((P.PLAZA.c + P.PLAZA.w / 2) * T, (P.PLAZA.r + P.PLAZA.h / 2) * T); });
-  ['zoom', 'card', 'toast', 'ticker', 'clock', 'hint', 'dock', 'town'].forEach(function (id) { $(id).addEventListener('pointerdown', function (e) { e.stopPropagation(); }); });
+  ['zoom', 'card', 'toast', 'ticker', 'clock', 'hint', 'dock', 'town', 'miracles', 'dilemma', 'dilemma-pill'].forEach(function (id) { $(id).addEventListener('pointerdown', function (e) { e.stopPropagation(); }); });
+
+  // ---------- Dilemas ----------
+  let dilemmaHidden = null, dilemmaShown = null;
+  function showDilemma() {
+    const d = S.dilemma, box = $('dilemma'), pill = $('dilemma-pill');
+    if (!d) { box.classList.remove('on'); pill.style.display = 'none'; dilemmaShown = null; return; }
+    const key = d.id + d.day;
+    if (dilemmaHidden === key) { box.classList.remove('on'); pill.style.display = 'block'; return; }
+    pill.style.display = 'none';
+    const left = Math.max(0, Math.round((d.until - S.time) / 60));
+    if (dilemmaShown !== key) {
+      dilemmaShown = key;
+      box.innerHTML = '<div class="dt"><span>📜 El pueblo te pide consejo</span><small id="dl-left"></small></div><p>' + esc(d.text) + '</p>' +
+        '<div class="opts"><button data-i="0">' + esc(d.opts[0]) + '</button><button data-i="1">' + esc(d.opts[1]) + '</button></div>' +
+        '<button class="later" id="dl-later">Lo pienso luego</button>';
+      box.querySelectorAll('.opts button').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); answer(Number(b.dataset.i)); }); });
+      $('dl-later').addEventListener('click', function (e) { e.stopPropagation(); dilemmaHidden = key; showDilemma(); });
+      box.classList.add('on');
+      if (performance.now() - lastInput > 20000) focus((P.PLAZA.c + P.PLAZA.w / 2) * T, (P.PLAZA.r + P.PLAZA.h / 2) * T);
+    }
+    const l = $('dl-left'); if (l) l.textContent = left >= 1 ? 'quedan ' + left + ' h' : 'última hora';
+  }
+  function answer(i) {
+    const res = P.answerDilemma(S, i, false);
+    dilemmaShown = null; showDilemma();
+    if (res) { toast('📜 ' + res, 6000); sparkle((P.PLAZA.c + P.PLAZA.w / 2) * T, (P.PLAZA.r + 3) * T, 30, ['#ffd34d', '#fff3a0', '#b9d7f5']); }
+    updateHUD(); save(true);
+  }
+  $('dilemma-pill').addEventListener('click', function (e) { e.stopPropagation(); dilemmaHidden = null; dilemmaShown = null; showDilemma(); });
+
+  // ---------- Milagros ----------
+  $('btn-miracles').addEventListener('click', function (e) { e.stopPropagation(); $('miracles').classList.toggle('on'); });
+  document.querySelectorAll('#miracles button[data-p]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); if (usePower(b.dataset.p, false)) $('miracles').classList.remove('on'); }); });
 
   // ---------- Poderes ----------
   function speak(text) {
@@ -1215,8 +1314,16 @@
   }
   function usePower(p, fromVoice, opts) {
     if (!fromVoice && (cool[p] || 0) > S.time) { toast('Paciencia… el santo descansa'); return null; }
+    if (!P.canAfford(S, p)) {
+      const msg = '🙏 No te queda fe suficiente: hacen falta ' + P.POWER_COST[p] + ' y tienes ' + Math.floor(P.faithOf(S)) + '. Sube con misas, fiestas y vecinos contentos.';
+      toast(msg, 5000);
+      if (fromVoice) speak('Al santo no le queda fe suficiente para eso. La fe sube con las misas, las fiestas y los vecinos contentos.');
+      return null;
+    }
     const text = P.applyPower(S, p, opts);
     if (!text) return null;
+    if (p === 'aparicion') { focus((P.FOUNTAIN.c + 1) * T, (P.FOUNTAIN.r + 1) * T); sparkle((P.FOUNTAIN.c + 1) * T, (P.FOUNTAIN.r - 2) * T, 80, ['#ffd34d', '#fff3a0', '#ffffff']); }
+    if (p === 'langostas') { const F = P.FIELD; focus((F.c + F.w / 2) * T, (F.r + F.h / 2) * T); }
     cool[p] = S.time + (COOLDOWN[p] || 60);
     toast(text, p === 'loteria' ? 6000 : 3800);
     if (p === 'bendecir') { const F = P.FIELD; sparkle((F.c + F.w / 2) * T, (F.r + F.h / 2) * T, 60, ['#fff3a0', '#ffd34d', '#ffffff']); focus((F.c + F.w / 2) * T, (F.r + F.h / 2) * T); }
