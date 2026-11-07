@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
 <title>Pueblo Vivo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
@@ -11,7 +11,8 @@
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: #7f9a48; overflow: hidden; }
+  html, body { width: 100%; height: 100%; background: #7f9a48; overflow: hidden; overscroll-behavior: none; }
+  canvas.layer { touch-action: none; }
   body { font-family: 'Pixelify Sans', ui-monospace, monospace; color: var(--ink); user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   #wrap { position: absolute; inset: 0; }
   canvas.layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
@@ -199,17 +200,27 @@
   function fit() {
     cam.z = clamp(cam.z, minZoom(), 2.2);
     scale = baseScale() * cam.z;
-    VW = Math.ceil(innerWidth / scale); VH = Math.ceil(innerHeight / scale);
-    if (world.width !== VW || world.height !== VH) { world.width = VW; world.height = VH; }
+    VW = innerWidth / scale; VH = innerHeight / scale;
+    // el lienzo siempre mide lo que la pantalla: el zoom se aplica al dibujar, así nunca se redimensiona (ni se borra) al hacer zoom
+    const cw = Math.round(innerWidth), ch = Math.round(innerHeight);
+    if (world.width !== cw || world.height !== ch) { world.width = cw; world.height = ch; }
+    g.imageSmoothingEnabled = false;
     const dpr = devicePixelRatio || 1;
     if (ui.width !== Math.round(innerWidth * dpr)) { ui.width = Math.round(innerWidth * dpr); ui.height = Math.round(innerHeight * dpr); }
   }
+  function worldTf() { g.setTransform(scale, 0, 0, scale, -left * scale, -top * scale); }
   function clampCam() {
     const hw = VW / 2, hh = VH / 2;
     cam.x = VW >= MW + 2 * M ? MW / 2 : clamp(cam.x, hw - M, MW + M - hw);
     cam.y = VH >= MH + 2 * M ? MH / 2 : clamp(cam.y, hh - M, MH + M - hh);
   }
   addEventListener('resize', function () { fit(); clampCam(); });
+  // que el visor del Echo no haga su propio zoom de página con dos dedos (eso también parpadea)
+  function blockNative(e) { if ((e.touches && e.touches.length > 1) || e.scale !== undefined && e.scale !== 1) { if (e.target === world || e.target === ui || e.target === wrap) e.preventDefault(); } }
+  document.addEventListener('touchmove', blockNative, { passive: false });
+  document.addEventListener('touchstart', blockNative, { passive: false });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, { passive: false });
   function focus(x, y, z) { cam.tx = x; cam.ty = y; if (z) cam.tz = z; }
   function inView(x, y, pad) { pad = pad || 24; return x > left - pad && x < left + VW + pad && y > top - pad && y < top + VH + pad * 2; }
 
@@ -741,10 +752,10 @@
     if (cam.tz) { cam.z += (cam.tz - cam.z) * Math.min(1, dt / 700); zoomDirty = true; if (Math.abs(cam.tz - cam.z) < .01) cam.tz = null; }
     if (zoomDirty) { fit(); zoomDirty = false; }
     clampCam();
-    left = Math.round(cam.x - VW / 2); top = Math.round(cam.y - VH / 2);
+    left = Math.round((cam.x - VW / 2) * scale) / scale; top = Math.round((cam.y - VH / 2) * scale) / scale;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = PAL.grass; g.fillRect(0, 0, VW, VH);
-    g.setTransform(1, 0, 0, 1, -left, -top);
+    g.fillStyle = PAL.grass; g.fillRect(0, 0, world.width, world.height);
+    worldTf();
     g.drawImage(bg, -M, -M);
     // agua que brilla
     for (let i = 0; i < 26; i++) { const p = P.RIVER_PTS, k = (i * 37 + Math.floor(t / 900)) % (p.length - 1), f = ((i * 53) % 100) / 100; const x = (p[k][0] + (p[k + 1][0] - p[k][0]) * f) * T, y = (p[k][1] + (p[k + 1][1] - p[k][1]) * f) * T + ((i * 3) % 7) - 3; if (inView(x, y)) rect(g, x, y, 2, 1, '#9cc8e0'); }
@@ -836,8 +847,8 @@
       const cl = clouds[i]; cl.x += cl.v * dt / 1000; if (cl.x - cl.r * 2 > MW + M) { cl.x = -M - cl.r * 3; cl.y = Math.random() * MH; }
       g.fillStyle = 'rgba(30,40,70,.09)'; g.beginPath(); g.ellipse(cl.x, cl.y, cl.r * 1.6, cl.r * .8, 0, 0, 7); g.ellipse(cl.x + cl.r, cl.y - cl.r * .3, cl.r, cl.r * .6, 0, 0, 7); g.fill();
     }
-    // a partir de aquí, capas de pantalla
-    g.setTransform(1, 0, 0, 1, 0, 0);
+    // a partir de aquí, capas de pantalla (en unidades del mundo, ancladas a la pantalla)
+    g.setTransform(scale, 0, 0, scale, 0, 0);
     if (S.weather !== 'sol') { g.fillStyle = raining ? 'rgba(40,50,70,.26)' : 'rgba(80,90,110,.12)'; g.fillRect(0, 0, VW, VH); }
     if (raining) {
       if (SEASON === 'invierno') {
@@ -851,7 +862,7 @@
     if (L.warm > 0) { g.fillStyle = 'rgba(255,140,60,' + L.warm.toFixed(3) + ')'; g.fillRect(0, 0, VW, VH); }
     if (L.night > 0) {
       g.fillStyle = 'rgba(16,20,60,' + L.night.toFixed(3) + ')'; g.fillRect(0, 0, VW, VH);
-      g.setTransform(1, 0, 0, 1, -left, -top);
+      worldTf();
       const glow = clamp(L.night / .45, 0, 1);
       P.BUILDINGS.forEach(function (b) {
         if (!b.windows || !inView(b.x + b.pw / 2, b.y, 60)) return;
