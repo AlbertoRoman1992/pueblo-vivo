@@ -14,7 +14,7 @@
   // MAPA: rejilla de casillas de 8x8 píxeles (60 x 34)
   // =====================================================================
   const T = 8, COLS = 60, ROWS = 34, W = COLS * T, H = ROWS * T;
-  const GRASS = 0, PATH = 1, ROAD = 2, PLAZA = 3, FIELD = 4, BENCH = 6, TREE = 7, WATER = 8, BUILD = 9;
+  const GRASS = 0, PATH = 1, ROAD = 2, PLAZA = 3, FIELD = 4, BENCH = 6, TREE = 7, WATER = 8, BUILD = 9, DECOR = 10;
   const grid = new Uint8Array(COLS * ROWS);
   function tileAt(c, r) { return (c < 0 || r < 0 || c >= COLS || r >= ROWS) ? BUILD : grid[r * COLS + c]; }
   function setTile(c, r, v) { if (c >= 0 && r >= 0 && c < COLS && r < ROWS) grid[r * COLS + c] = v; }
@@ -36,7 +36,29 @@
     { id: 'h10', type: 'casa', c: 16, r: 23, w: 5, h: 4 },
     { id: 'iglesia', type: 'iglesia', name: 'la iglesia', c: 27, r: 1, w: 7, h: 9 },
     { id: 'bar', type: 'bar', name: 'el bar', c: 11, r: 12, w: 7, h: 5 },
-    { id: 'panaderia', type: 'panaderia', name: 'la panadería', c: 41, r: 12, w: 7, h: 5 }
+    { id: 'panaderia', type: 'panaderia', name: 'la panadería', c: 41, r: 12, w: 7, h: 5 },
+    // solares: están reservados desde el principio y se construyen al subir de nivel
+    { id: 'tienda', type: 'tienda', name: 'la tienda', c: 49, r: 12, w: 5, h: 4, lot: true },
+    { id: 'escuela', type: 'escuela', name: 'la escuela', c: 23, r: 12, w: 5, h: 4, lot: true },
+    { id: 'quiosco', type: 'quiosco', name: 'el quiosco', c: 18, r: 13, w: 4, h: 3, lot: true }
+  ];
+  // zonas decorativas que también se construyen (no se pueden pisar)
+  const MILL_T = { c: 14, r: 1, w: 5, h: 5 };
+  const OLIVE_T = { c: 1, r: 30, w: 21, h: 3 };
+
+  // Niveles del pueblo según su fama, y obras que desbloquea cada nivel
+  const LEVELS = [
+    { at: 0, name: 'Aldea' }, { at: 60, name: 'Pueblo' }, { at: 200, name: 'Pueblo con encanto' },
+    { at: 450, name: 'Villa' }, { at: 900, name: 'Villa próspera' }
+  ];
+  const PROJECTS = [
+    { id: 'farolas', level: 2, days: 1, icon: '💡', name: 'las farolas', done: 'Ya hay farolas en la carretera y en la plaza: se acabó volver a casa a oscuras' },
+    { id: 'tienda', level: 2, days: 2, icon: '🛒', name: 'la tienda de ultramarinos', done: 'Abre la tienda de ultramarinos, y Carmen ya se ha enterado de lo que compra cada uno' },
+    { id: 'escuela', level: 3, days: 3, icon: '🏫', name: 'la escuela', done: 'Se inaugura la escuela: los críos ya no tienen que ir al pueblo de al lado' },
+    { id: 'olivar', level: 3, days: 2, icon: '🫒', name: 'el olivar', done: 'Se planta el olivar comunal: dentro de unos años, aceite del pueblo' },
+    { id: 'quiosco', level: 4, days: 2, icon: '📰', name: 'el quiosco', done: 'Abre el quiosco de prensa en la carretera' },
+    { id: 'molino', level: 4, days: 2, icon: '🌬️', name: 'el molino', done: 'Se restaura el molino viejo, y vuelve a girar después de cincuenta años' },
+    { id: 'plaza', level: 5, days: 3, icon: '⛲', name: 'la plaza nueva', done: 'Se estrena la plaza nueva, con naranjos, flores y la estatua del santo' }
   ];
   const ROAD_ROWS = [19, 20];
   const LANE_ROW = 28;
@@ -73,6 +95,9 @@
         setTile(b.dc, r, PATH);
       }
     });
+    // zonas reservadas para el molino y el olivar
+    fillTiles(MILL_T.c, MILL_T.r, MILL_T.w, MILL_T.h, DECOR);
+    fillTiles(OLIVE_T.c, OLIVE_T.r, OLIVE_T.w, OLIVE_T.h, DECOR);
     // fuente y bancos
     fillTiles(FOUNTAIN_T.c, FOUNTAIN_T.r, FOUNTAIN_T.w, FOUNTAIN_T.h, WATER);
     BENCHES_T.forEach(function (p) { fillTiles(p[0], p[1], 2, 1, BENCH); });
@@ -224,6 +249,7 @@
   function euros(n) { n = Math.round(n); return (n >= 1000 ? n.toLocaleString('es-ES') : String(n)) + ' euros'; }
   function adults(S) { return S.villagers.filter(isAdult); }
   function isMarket(S) { const h = hourOf(S); return wdOf(S) === 5 && h >= 9 && h < 14; }
+  function fiestaOn(S) { return S.time < S.fiestaUntil && S.time >= (S.fiestaFrom || 0); }
   function remember(v, k, o, a, t) {
     v.mem = v.mem || [];
     v.mem.push({ k: k, o: o, a: a || 0, t: t });
@@ -252,8 +278,10 @@
       fiestaUntil: 0, blessUntil: 0, rondaUntil: 0, harvest: 55,
       biz: { panaderia: { owner: 'paco', price: PRICES.pan }, bar: { owner: 'manolo', price: PRICES.cana } },
       houses: {}, debts: [], flags: {},
-      villagers: [], rel: {}, events: [], nextId: 100
+      villagers: [], rel: {}, events: [], nextId: 100,
+      fame: 0, level: 1, fameDay: 0, builds: {}, milestones: []
     };
+    milestone(S, '⛪', 'Se funda Pueblo Vivo: 21 vecinos, un bar, una panadería y mucha vida por delante');
     BUILDINGS.forEach(function (b) { if (b.type === 'casa') S.houses[b.id] = 0; });
     const L = function (skin, hair, shirt, pants) { return { skin: skin, hair: hair, shirt: shirt, pants: pants }; };
     S.villagers = [
@@ -304,6 +332,79 @@
     return e;
   }
 
+  // Momentos que van al libro del pueblo
+  function milestone(S, icon, text) {
+    S.milestones = S.milestones || [];
+    S.milestones.push({ d: dayOf(S), t: Math.round(S.time), i: icon, text: text });
+    if (S.milestones.length > 80) S.milestones.splice(0, S.milestones.length - 80);
+  }
+
+  // =====================================================================
+  // PROGRESO DEL PUEBLO: fama, niveles y obras
+  // =====================================================================
+  function isBuilt(S, id) { const b = S.builds && S.builds[id]; return !!(b && b.done); }
+  function buildProgress(S, id) {
+    const b = S.builds && S.builds[id];
+    if (!b) return 0;
+    if (b.done) return 1;
+    return clamp((S.time - b.start) / (b.until - b.start), 0, 1);
+  }
+  function building_(S) { return PROJECTS.find(function (p) { return S.builds[p.id] && !S.builds[p.id].done; }); }
+  function levelFor(fame) { let l = 1; LEVELS.forEach(function (x, i) { if (fame >= x.at) l = i + 1; }); return l; }
+  function moodScore(v) {
+    let m = 100 - (v.needs.hunger + (100 - v.needs.energy) + v.needs.social) / 3;
+    if (isAdult(v) && v.money < 12) m -= 25;
+    if ((v.mem || []).some(function (x) { return x.k === 'celos' || x.k === 'rencor'; })) m -= 10;
+    if (v.partner) m += 6;
+    return clamp(m, 0, 100);
+  }
+  function happiness(S) {
+    if (!S.villagers.length) return 0;
+    return S.villagers.reduce(function (s, v) { return s + moodScore(v); }, 0) / S.villagers.length;
+  }
+  function addFame(S, n) { S.fame = (S.fame || 0) + n; S.fameToday = (S.fameToday || 0) + n; }
+
+  function startNextBuild(S) {
+    if (building_(S)) return;
+    const next = PROJECTS.find(function (p) { return p.level <= S.level && !S.builds[p.id]; });
+    if (!next) return;
+    S.builds[next.id] = { start: Math.round(S.time), until: Math.round(S.time + next.days * DAY), done: 0 };
+    log(S, 'han empezado las obras de ' + next.name, '🚧 Empiezan las obras: ' + next.name, 2);
+  }
+  function finishBuilds(S) {
+    PROJECTS.forEach(function (p) {
+      const b = S.builds[p.id];
+      if (!b || b.done || S.time < b.until) return;
+      b.done = Math.round(S.time);
+      if (p.id === 'tienda') {
+        const owner = byId(S, 'carmen') || adults(S).filter(function (v) { return v.job === 'costurero'; })[0];
+        S.biz.tienda = { owner: owner ? owner.id : null, price: 3 };
+      }
+      addFame(S, 15);
+      log(S, p.done.charAt(0).toLowerCase() + p.done.slice(1), p.icon + ' ¡Inaugurado: ' + p.name + '!', 3, [], { build: p.id });
+      milestone(S, p.icon, p.done);
+    });
+    startNextBuild(S);
+  }
+  function townDay(S) {
+    const gain = Math.round(8 + happiness(S) / 5 + S.harvest / 10 + S.villagers.length / 3 +
+      Object.keys(S.houses).reduce(function (s, k) { return s + S.houses[k]; }, 0));
+    addFame(S, gain);
+    S.fameDay = S.fameToday || gain; S.fameToday = 0;
+    const lvl = levelFor(S.fame);
+    while (S.level < lvl) {
+      S.level++;
+      const L = LEVELS[S.level - 1];
+      log(S, '¡Pueblo Vivo ya es ' + (S.level === 2 ? 'un ' : S.level === 3 ? 'un ' : 'una ') + L.name.toLowerCase() + '! Lo celebran en la plaza, y la noticia ha atraído a gente de fuera',
+        '🏆 ¡Pueblo Vivo sube a ' + L.name + '!', 4, [], { levelUp: S.level });
+      milestone(S, '🏆', 'Pueblo Vivo pasa a ser ' + (S.level <= 3 ? 'un ' : 'una ') + L.name.toLowerCase());
+      S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 10 * 60 + 240); // verbena al día siguiente por la tarde
+      S.fiestaFrom = S.time + 10 * 60;
+      stranger(S);
+    }
+    finishBuilds(S);
+  }
+
   // ---------- Dinero ----------
   function pay(S, from, toId, amt) {
     if (!from || from.money < amt) return false;
@@ -331,10 +432,20 @@
       const i = Math.max(0, sellers.indexOf(v));
       return { c: STALL_COLS[i % STALL_COLS.length] + (i >= STALL_COLS.length ? 1 : 0), r: STALL_ROW + 1 };
     }
+    if (place === 'obra') {
+      const ob = building_(S), lb = ob && BY_ID[ob.id];
+      if (lb) {
+        const spots = [[lb.c - 1, lb.dr - 1], [lb.c + lb.w, lb.dr - 1], [lb.dc - 1, lb.dr], [lb.dc + 1, lb.dr], [lb.c - 1, lb.r + 1], [lb.c + lb.w, lb.r + 1]]
+          .filter(function (p) { return passable(S, p[0], p[1]); });
+        if (spots.length) { const s = spots[(v.offset + 40) % spots.length]; return { c: s[0], r: s[1] }; }
+        return { c: lb.dc, r: lb.dr };
+      }
+      return placeTile(S, 'plaza', v);
+    }
     const b = building(place);
     return { c: b.dc, r: b.dr };
   }
-  function isIndoor(place) { return place !== 'plaza' && place !== 'campo' && place !== 'puesto'; }
+  function isIndoor(place) { return place !== 'plaza' && place !== 'campo' && place !== 'puesto' && place !== 'obra'; }
 
   function desired(S, v) {
     const h = hourOf(S), wd = wdOf(S), day = dayOf(S), rain = S.weather === 'lluvia';
@@ -343,7 +454,7 @@
     const wake = (v.age > 70 ? 7 : 7.5) + o;
     const hh = h < 5 ? h + 24 : h;
     if (hh >= sleepStart || h < wake) return { act: 'dormir', place: v.home, dur: 30 };
-    if (S.time < S.fiestaUntil) return { act: 'fiesta', place: 'plaza', dur: 30 };
+    if (fiestaOn(S)) return { act: 'fiesta', place: 'plaza', dur: 30 };
     if (S.time < S.rondaUntil && isAdult(v)) return { act: 'tomar algo', place: 'bar', dur: 40, free: true };
     if (wd === 6 && h >= 12 && h < 13 && (has(v, 'religioso') || v.job === 'cura' || rnd(S) < 0.3)) return { act: 'misa', place: 'iglesia', dur: 60 };
     // el pan de cada mañana
@@ -356,6 +467,15 @@
       if (v.days.mercado !== day && v.money > 10 && rnd(S) < 0.5) return { act: 'comprar', place: 'plaza', dur: 30, buy: 'mercado' };
     }
     const work = (h >= 9 && h < 14) || (h >= 17 && h < 20);
+    // lo que va trayendo el progreso del pueblo
+    if (v.job === 'niño' && wd < 5 && h >= 9 && h < 14 && isBuilt(S, 'escuela')) return { act: 'ir al cole', place: 'escuela', dur: 60 };
+    const obra = building_(S);
+    if (obra && BY_ID[obra.id] && work && wd < 6 && !rain && (v.job === 'agricultor' || v.job === 'jubilado') && isAdult(v) &&
+      (v.offset + dayOf(S)) % 3 === 0) return { act: 'trabajar en la obra', place: 'obra', dur: 50 };
+    if (isAdult(v) && isBuilt(S, 'quiosco') && h >= 8 && h < 11 && v.days.periodico !== day && rnd(S) < 0.12) return { act: 'comprar el periódico', place: 'quiosco', dur: 10, buy: 'periodico' };
+    if (isAdult(v) && isBuilt(S, 'tienda') && ((h >= 10 && h < 13.5) || (h >= 17.5 && h < 20)) && v.days.tienda !== day && v.money > 20 &&
+      (!S.biz.tienda || S.biz.tienda.owner !== v.id) && rnd(S) < 0.2) return { act: 'hacer la compra', place: 'tienda', dur: 20, buy: 'tienda' };
+    if (S.biz.tienda && S.biz.tienda.owner === v.id && work && wd < 6) return { act: 'atender la tienda', place: 'tienda', dur: 60 };
     if (work && wd < 6) {
       if (v.job === 'panadero') return { act: 'trabajar', place: 'panaderia', dur: 60 };
       if (v.job === 'tabernero') return { act: 'trabajar', place: 'bar', dur: 60 };
@@ -392,6 +512,13 @@
     } else if (d.buy === 'bar') {
       const b = S.biz.bar;
       if (pay(S, v, b.owner, b.price)) b.sales = (b.sales || 0) + 1;
+    } else if (d.buy === 'tienda') {
+      v.days.tienda = day;
+      const t = S.biz.tienda;
+      if (t && pay(S, v, t.owner, t.price)) { t.sales = (t.sales || 0) + 1; v.needs.hunger = clamp(v.needs.hunger - 5, 0, 100); }
+    } else if (d.buy === 'periodico') {
+      v.days.periodico = day;
+      pay(S, v, null, 1.5);
     } else if (d.buy === 'mercado') {
       v.days.mercado = day;
       const sellers = S.villagers.filter(function (o) { return o.job === 'agricultor' && isAdult(o) && o.id !== v.id; });
@@ -546,10 +673,14 @@
       // reformar la casa si sobra el dinero
       const lvl = S.houses[v.home];
       const isHead = S.villagers.filter(function (o) { return o.home === v.home && isAdult(o); })[0] === v;
-      if (lvl !== undefined && lvl < 2 && isHead && v.money > 700 && (has(v, 'trabajador') || has(v, 'ahorrador') || memOf(v, 'loteria')) && rnd(S) < 0.3) {
+      const maxLvl = S.level >= 3 ? 3 : 2;
+      const reformFund = lvl === 0 ? 500 : 700;
+      if (lvl !== undefined && lvl < maxLvl && isHead && v.money > reformFund && (has(v, 'trabajador') || has(v, 'ahorrador') || memOf(v, 'loteria') || lvl === 0) && rnd(S) < 0.3) {
         v.money -= PRICES.reforma; S.houses[v.home] = lvl + 1;
-        log(S, v.name + ' ha ' + (lvl === 0 ? 'puesto macetas y arreglado la fachada de su casa' : 'pintado la casa y cambiado la puerta') + ', y ha quedado preciosa',
-          '🏡 ' + v.name + ' arregla la casa', 2, [v.id]);
+        const what = ['puesto macetas y arreglado la fachada de su casa', 'pintado la casa y cambiado la puerta', 'hecho un balcón lleno de geranios en su casa'][lvl];
+        log(S, v.name + ' ha ' + what + ', y ha quedado preciosa', '🏡 ' + v.name + ' arregla la casa', 2, [v.id], { house: v.home });
+        addFame(S, 5);
+        if (lvl + 1 === 3) milestone(S, '🌺', v.name + ' estrena balcón: su casa es ya de las más bonitas del pueblo');
       }
       // los secretos no duran en un pueblo
       const secret = memOf(v, 'loteria');
@@ -564,6 +695,7 @@
       }
       v.days = { trabajo: v.days.trabajo };
     });
+    townDay(S);
   }
 
   function comeOfAge(S, v) {
@@ -572,6 +704,7 @@
     v.job = family.length && family[0].job !== 'jubilado' && family[0].job !== 'cura' && rnd(S) < 0.6 ? family[0].job : pick(S, jobs);
     v.money = 30;
     log(S, v.name + ' ya es mayor de edad y empieza a trabajar de ' + jobName(v), '🎓 ' + v.name + ' empieza a trabajar', 2, [v.id]);
+    milestone(S, '🎓', v.name + ' cumple 18 años y empieza a trabajar de ' + jobName(v));
   }
 
   // Un suceso pequeño casi cada día, para que siempre haya algo que contar
@@ -719,7 +852,7 @@
         if (a.act === 'dormir' || b.act === 'dormir') continue;
         const together = coarse ? a.actPlace === b.actPlace : sameSpot(a, b);
         if (!together) continue;
-        const p = 0.12 * Math.sqrt(soc(a) * soc(b)) * (S.time < S.fiestaUntil ? 2 : 1);
+        const p = 0.12 * Math.sqrt(soc(a) * soc(b)) * (fiestaOn(S) ? 2 : 1);
         if (rnd(S) < p) chat(S, a, b, coarse);
         else if (a.actPlace === 'bar' && b.actPlace === 'bar' && isAdult(a) && isAdult(b) && hourOf(S) >= 19 &&
           a.job !== 'tabernero' && b.job !== 'tabernero' && rnd(S) < 0.03) mus(S, a, b);
@@ -732,7 +865,7 @@
     let delta = 2 + Math.floor(rnd(S) * 5) - 2;
     a.traits.concat(b.traits).forEach(function (t) { delta += (TRAITS[t] ? TRAITS[t].aff : 0) * 0.5; });
     if (r0 < -30) delta -= 3;
-    if (S.time < S.fiestaUntil) delta += 2;
+    if (fiestaOn(S)) delta += 2;
     [[a, b], [b, a]].forEach(function (p) {
       if (memOf(p[0], 'rencor', p[1].id) || memOf(p[0], 'celos', p[1].id)) delta -= 2;
       if (memOf(p[0], 'favor', p[1].id)) delta += 2;
@@ -747,7 +880,7 @@
     b.needs.social = clamp(b.needs.social - 15, 0, 100);
 
     if (!coarse) {
-      const ctx = r1 < -30 ? 'roce' : a.partner === b.id ? 'pareja' : a.crush === b.id ? 'crush' : S.time < S.fiestaUntil ? 'fiesta'
+      const ctx = r1 < -30 ? 'roce' : a.partner === b.id ? 'pareja' : a.crush === b.id ? 'crush' : fiestaOn(S) ? 'fiesta'
         : a.act === 'comprar' || a.act === 'vender' ? 'mercado' : a.money < 12 && isAdult(a) ? 'apuro'
           : rnd(S) < 0.35 ? S.weather : a.act === 'trabajar' ? 'trabajo' : 'general';
       let line = pick(S, LINES[ctx] || LINES.general);
@@ -805,6 +938,7 @@
     a.partner = b.id; b.partner = a.id; a.since = b.since = S.time; a.crush = b.crush = null;
     forget(a, 'rechazo', b.id); forget(b, 'rechazo', a.id);
     log(S, text, '💕 ' + a.name + ' y ' + b.name + ' son novios', 3, [a.id, b.id]);
+    milestone(S, '💕', a.name + ' y ' + b.name + ' empiezan a salir');
     // celos de quien estaba colado por alguno de los dos
     S.villagers.forEach(function (x) {
       if (x.crush !== a.id && x.crush !== b.id) return;
@@ -832,7 +966,9 @@
     const count = function (h) { return S.villagers.filter(function (v) { return v.home === h; }).length; };
     const home = count(a.home) <= count(b.home) ? a.home : b.home;
     a.home = home; b.home = home; a.married = b.married = true;
-    S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 180);
+    S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 180); S.fiestaFrom = Math.min(S.fiestaFrom || 0, S.time);
+    milestone(S, '💒', 'Boda de ' + a.name + ' y ' + b.name);
+    addFame(S, 20);
     log(S, '¡' + a.name + ' y ' + b.name + ' se han casado! Hubo boda y verbena en la plaza', '💒 Boda de ' + a.name + ' y ' + b.name, 4, [a.id, b.id]);
   }
 
@@ -852,7 +988,7 @@
     switch (power) {
       case 'lluvia':
         S.weather = 'lluvia'; S.weatherUntil = S.time + 180; S.harvest = clamp(S.harvest + 8, 0, 100);
-        if (S.time < S.fiestaUntil) {
+        if (fiestaOn(S)) {
           S.fiestaUntil = S.time;
           log(S, 'un chaparrón aguó las fiestas y todo el mundo acabó en el bar', '☔ La lluvia agua la fiesta', 2);
         } else log(S, 'el santo hizo llover', 'El santo manda lluvia', 1);
@@ -863,7 +999,7 @@
         log(S, 'salió el sol por obra del santo', 'Sale el sol', 1);
         return 'Se abren las nubes y sale el sol.';
       case 'fiesta':
-        S.fiestaUntil = S.time + 240;
+        S.fiestaUntil = S.time + 240; S.fiestaFrom = S.time;
         S.villagers.forEach(function (v) { if (v.act !== 'dormir') v.actUntil = S.time; });
         log(S, 'hubo verbena en la plaza por las fiestas del santo', '🎉 ¡Fiestas en la plaza!', 2);
         return '¡Fiestas patronales! Todo el mundo a la plaza.';
@@ -910,6 +1046,7 @@
       speech = '¡Le ha tocado la lotería a ' + v.name + '! Dos mil euros.';
     }
     log(S, 'a ' + v.name + ' le ha tocado la lotería: ' + euros(prize) + tail, '🎟️ ¡A ' + v.name + ' le toca la lotería!', imp, [v.id]);
+    milestone(S, '🎟️', 'A ' + v.name + ' le toca la lotería' + tail);
     v.bubble = { text: '¡Me ha tocado!', until: S.time + 15 };
     return speech;
   }
@@ -940,6 +1077,8 @@
     S.villagers.forEach(function (o) { if (o.id !== id) setRel(S, id, o.id, Math.floor(rnd(S) * 20) - 5); });
     log(S, 'llegó ' + g(v, 'un forastero llamado ', 'una forastera llamada ') + name + ', ' + g(v, 'el', 'la') + ' nuevo ' + jobName(v) + ' del pueblo',
       '🧳 Llega ' + name + ' al pueblo', 3, [id]);
+    milestone(S, '🧳', 'Llega ' + name + ' al pueblo para quedarse');
+    addFame(S, 5);
     return 'Por el camino llega ' + g(v, 'un forastero', 'una forastera') + ': ' + name + '. Veremos qué tal ' + g(v, 'lo', 'la') + ' reciben.';
   }
 
@@ -967,7 +1106,7 @@
       .sort(function (x, y) { return x.t - y.t; });
     if (!top.length) {
       const rain = evs.some(function (e) { return e.text.indexOf('llov') >= 0; });
-      return intro + (rain ? 'Ha llovido un poco, pero por lo demás todo ha estado tranquilo.' : 'Todo ha estado tranquilo: mucho paseo por la plaza y poca novedad.');
+      return intro + (rain ? 'Ha llovido un poco, pero por lo demás todo ha estado tranquilo.' : 'Todo ha estado tranquilo: mucho paseo por la plaza y poca novedad.') + townLine(S);
     }
     const links = ['Además, ', 'Por otro lado, ', 'Y ojo: ', 'También '], k0 = Math.floor(rnd(S) * links.length);
     const parts = top.map(function (e, i) {
@@ -975,7 +1114,31 @@
       const t = c ? c + e.text : capital(e.text);
       return /[.!?…]$/.test(t) ? t : t + '.';
     });
-    return intro + parts.join(' ');
+    return intro + parts.join(' ') + townLine(S);
+  }
+  // Una frase sobre cómo va el pueblo, para cerrar la crónica cuando hay algo que decir
+  function townLine(S) {
+    const st = townStatus(S);
+    const obra = st.projects.find(function (p) { return p.state === 'obras'; });
+    if (st.to !== null && st.progress >= 0.8) return ' Al pueblo le falta muy poco para convertirse en ' + (st.level + 1 <= 3 ? 'un ' : 'una ') + st.nextName.toLowerCase() + '.';
+    if (obra) return ' Siguen las obras de ' + obra.name + (obra.progress >= 0.6 ? ', que ya casi están.' : '.');
+    return '';
+  }
+  function townStatus(S) {
+    const lvl = S.level || 1, L = LEVELS[lvl - 1], N = LEVELS[lvl];
+    const fame = Math.round(S.fame || 0);
+    return {
+      level: lvl, name: L.name, nextName: N ? N.name : null, fame: fame, from: L.at, to: N ? N.at : null,
+      progress: N ? clamp((fame - L.at) / (N.at - L.at), 0, 1) : 1, fameDay: S.fameDay || 0,
+      pop: S.villagers.length, happy: Math.round(happiness(S)), harvest: Math.round(S.harvest),
+      wealth: Math.round(adults(S).reduce(function (s, v) { return s + v.money; }, 0)),
+      couples: S.villagers.filter(function (v) { return v.partner; }).length / 2,
+      projects: PROJECTS.map(function (p) {
+        const b = S.builds[p.id];
+        return { id: p.id, name: p.name, icon: p.icon, level: p.level, progress: buildProgress(S, p.id),
+          state: b && b.done ? 'hecho' : b ? 'obras' : p.level <= lvl ? 'pendiente' : 'bloqueado' };
+      })
+    };
   }
 
   // =====================================================================
@@ -984,12 +1147,12 @@
   const ACTS = {
     dormir: 'durmiendo', trabajar: 'trabajando', coser: 'cosiendo en casa', vender: 'vendiendo en el mercado', comprar: 'de compras en el mercado',
     'comprar pan': 'comprando el pan', 'tomar algo': 'tomando algo en el bar', pasear: 'paseando por la plaza', charlar: 'charlando en el bar',
-    descansar: 'descansando', siesta: 'echándose la siesta', comer: 'comiendo', misa: 'en misa', fiesta: 'de fiesta en la plaza', jugar: 'jugando'
+    descansar: 'descansando', siesta: 'echándose la siesta', comer: 'comiendo', misa: 'en misa', fiesta: 'de fiesta en la plaza', jugar: 'jugando',
+    'ir al cole': 'en la escuela', 'hacer la compra': 'haciendo la compra en la tienda', 'atender la tienda': 'atendiendo la tienda',
+    'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra'
   };
   function moodOf(v) {
-    let m = 100 - (v.needs.hunger + (100 - v.needs.energy) + v.needs.social) / 3;
-    if (isAdult(v) && v.money < 12) m -= 25;
-    if ((v.mem || []).some(function (x) { return x.k === 'celos' || x.k === 'rencor'; })) m -= 10;
+    const m = moodScore(v);
     return m > 68 ? 'contento' : m > 42 ? 'normal' : 'de bajón';
   }
   function villagerSummary(S, v) {
@@ -1051,6 +1214,7 @@
     return JSON.stringify(S, function (k, val) {
       if (k === 'path' || k === 'bubble') return undefined;
       if (k === 'events') return val.slice(-40);
+      if (k === 'milestones') return val.slice(-50);
       if (k === 'x' || k === 'y') return Math.round(val);
       if ((k === 'money' || k === 'stock') && typeof val === 'number') return Math.round(val * 100) / 100;
       if (k === 'time' && typeof val === 'number') return Math.round(val * 100) / 100;
@@ -1061,15 +1225,24 @@
     const S = typeof json === 'string' ? JSON.parse(json) : json;
     if (!S || !S.villagers || S.v !== VERSION) return null;
     S.villagers.forEach(function (v) { v.path = []; v.bubble = null; v.days = v.days || {}; v.mem = v.mem || []; });
+    // pueblos guardados antes de que existiera el progreso
+    if (S.fame === undefined) {
+      S.fame = Math.min(55, (dayOf(S) - 1) * 20); S.level = 1; S.fameDay = 0; S.builds = {};
+      S.milestones = [{ d: 1, t: 0, i: '⛪', text: 'Se funda Pueblo Vivo' }];
+    }
+    S.builds = S.builds || {}; S.milestones = S.milestones || []; S.level = S.level || 1;
     return S;
   }
 
   return {
     VERSION: VERSION, serialize: serialize, deserialize: deserialize,
-    T: T, COLS: COLS, ROWS: ROWS, W: W, H: H, tileAt: tileAt, TILES: { GRASS: GRASS, PATH: PATH, ROAD: ROAD, PLAZA: PLAZA, FIELD: FIELD, BENCH: BENCH, TREE: TREE, WATER: WATER, BUILD: BUILD },
+    T: T, COLS: COLS, ROWS: ROWS, W: W, H: H, tileAt: tileAt, TILES: { GRASS: GRASS, PATH: PATH, ROAD: ROAD, PLAZA: PLAZA, FIELD: FIELD, BENCH: BENCH, TREE: TREE, WATER: WATER, BUILD: BUILD, DECOR: DECOR },
     BUILDINGS: BUILDINGS, TREES: TREES, PLAZA: PLAZA_T, FIELD: FIELD_T, FOUNTAIN: FOUNTAIN_T, BENCHES: BENCHES_T, STALL_COLS: STALL_COLS, STALL_ROW: STALL_ROW,
     DAY: DAY, createWorld: createWorld, step: step, fastForward: fastForward, applyPower: applyPower,
     chronicle: chronicle, villagerSummary: villagerSummary, describeVillager: describeVillager, findVillager: findVillager,
-    clock: clock, hourOf: hourOf, byId: byId, jobName: jobName, isMarket: isMarket, findPath: findPath, passable: passable
+    clock: clock, hourOf: hourOf, byId: byId, jobName: jobName, isMarket: isMarket, findPath: findPath, passable: passable,
+    // progreso (fase 1.5)
+    LEVELS: LEVELS, PROJECTS: PROJECTS, MILL: MILL_T, OLIVE: OLIVE_T, LANE_ROW: LANE_ROW, ROAD_ROWS: ROAD_ROWS,
+    isBuilt: isBuilt, buildProgress: buildProgress, townStatus: townStatus, fiestaOn: fiestaOn, moodScore: moodScore, dayOf: dayOf
   };
 });
