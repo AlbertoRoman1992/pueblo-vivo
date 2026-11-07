@@ -50,6 +50,7 @@
   const MILL_T = { c: 82, r: 2, w: 5, h: 6 };
   const OLIVE_T = { c: 58, r: 56, w: 33, h: 3 };
   const CEMETERY_T = { c: 50, r: 9, w: 6, h: 7 };
+  const VINE_T = { c: 6, r: 55, w: 36, h: 4 };
 
   // Edificios fijos y solares de obras (c, r = esquina superior izquierda; door = lado de la puerta)
   const BUILDINGS = [
@@ -74,7 +75,8 @@
     { id: 'tienda', level: 2, days: 2, icon: '🛒', name: 'la tienda de ultramarinos', done: 'Abre la tienda de ultramarinos, y Carmen ya se ha enterado de lo que compra cada uno' },
     { id: 'consultorio', level: 2, days: 2, icon: '🩺', name: 'el consultorio', done: 'Abre el consultorio médico, y llega una médica para quedarse: los mayores ya no tienen que ir a la capital' },
     { id: 'escuela', level: 3, days: 3, icon: '🏫', name: 'la escuela', done: 'Se inaugura la escuela: los críos ya no tienen que ir al pueblo de al lado' },
-    { id: 'olivar', level: 3, days: 2, icon: '🫒', name: 'el olivar', done: 'Se planta el olivar comunal: dentro de unos años, aceite del pueblo' },
+    { id: 'olivar', level: 3, days: 2, icon: '🫒', name: 'el olivar', done: 'Se planta el olivar comunal: ya hay aceituna para quien monte una almazara' },
+    { id: 'vina', level: 3, days: 2, icon: '🍇', name: 'el viñedo', done: 'Se planta el viñedo al otro lado del río: ya hay uva para quien monte una bodega' },
     { id: 'cuartel', level: 3, days: 2, icon: '🚔', name: 'el cuartel de la Guardia Civil', done: 'Abre el cuartel de la Guardia Civil, y llega un guardia que ya patrulla las calles' },
     { id: 'quiosco', level: 4, days: 2, icon: '📰', name: 'el quiosco', done: 'Abre el quiosco de prensa en la carretera' },
     { id: 'molino', level: 4, days: 2, icon: '🌬️', name: 'el molino', done: 'Se restaura el molino viejo, y vuelve a girar después de cincuenta años' },
@@ -160,7 +162,7 @@
     BUILDINGS.forEach(function (b) { fillTiles(b.c, b.r, b.w, b.h, BUILD); });
     BUILDINGS.forEach(setupBuilding);
     // molino, olivar y cementerio
-    [MILL_T, OLIVE_T, CEMETERY_T].forEach(function (z) { fillTiles(z.c, z.r, z.w, z.h, DECOR); });
+    [MILL_T, OLIVE_T, CEMETERY_T, VINE_T].forEach(function (z) { fillTiles(z.c, z.r, z.w, z.h, DECOR); });
     // casas pegadas a lo largo de las calles, con su corral detrás
     const rng = seededRng(1948);
     const fronts = STREETS.filter(function (s) { return s.houses; }).map(function (s) { return { s: s, tiles: s.tiles }; });
@@ -401,7 +403,8 @@
       biz: { panaderia: { owner: 'paco', price: PRICES.pan }, bar: { owner: 'manolo', price: PRICES.cana } },
       houses: {}, debts: [], flags: {},
       villagers: [], rel: {}, events: [], nextId: 100,
-      fame: 0, level: 1, fameDay: 0, builds: {}, milestones: [], faith: 50, dilemma: null, dilemmaUsed: {}, followups: []
+      fame: 0, level: 1, fameDay: 0, builds: {}, milestones: [], faith: 50, dilemma: null, dilemmaUsed: {}, followups: [],
+      goods: { trigo: 0, harina: 0, aceituna: 0, aceite: 0, uva: 0, vino: 0, queso: 0 }, shops: [], shopSeq: 1
     };
     milestone(S, '⛪', 'Se funda Pueblo Vivo: 21 vecinos, un bar, una panadería y mucha vida por delante');
     HOMES.forEach(function (b) { if (b.initial) S.houses[b.id] = 0; });
@@ -499,16 +502,20 @@
   function startNextBuild(S) {
     if (building_(S)) return;
     // el alcalde decide qué obra va primero según su bando
-    const pref = S.mayorSide === 'tradicion' ? ['plaza', 'olivar', 'molino', 'farolas', 'cuartel'] : S.mayorSide === 'progreso' ? ['escuela', 'consultorio', 'tienda', 'quiosco', 'farolas'] : [];
+    const pref = S.mayorSide === 'tradicion' ? ['plaza', 'olivar', 'vina', 'molino', 'farolas', 'cuartel'] : S.mayorSide === 'progreso' ? ['escuela', 'consultorio', 'tienda', 'quiosco', 'farolas'] : [];
     const avail = PROJECTS.filter(function (p) { return p.level <= S.level && !S.builds[p.id]; })
       .sort(function (a, b) { const ia = pref.indexOf(a.id), ib = pref.indexOf(b.id); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || PROJECTS.indexOf(a) - PROJECTS.indexOf(b); });
     const next = avail[0];
     if (!next) return;
-    // con un alcalde del progreso y dinero en las arcas, las obras van más rápido
-    const fast = S.mayorSide === 'progreso' && (S.arcas || 0) >= 80;
-    if (fast) S.arcas -= 60;
-    S.builds[next.id] = { start: Math.round(S.time), until: Math.round(S.time + next.days * DAY * (fast ? 0.7 : 1)), done: 0 };
-    log(S, 'han empezado las obras de ' + next.name, '🚧 Empiezan las obras: ' + next.name, 2);
+    // las obras las paga el ayuntamiento: sin dinero van lentas; con el progreso y dinero de sobra, rápidas
+    const cost = 100, arcas = S.arcas || 0;
+    let speed = 1, note = '';
+    if (arcas >= cost) {
+      S.arcas = arcas - cost;
+      if (S.mayorSide === 'progreso' && S.arcas >= 60) { S.arcas -= 60; speed = 0.7; note = ', y con prisa: el alcalde ha puesto más dinero'; }
+    } else { speed = 1.5; note = ', pero van lentas: en las arcas del ayuntamiento no hay dinero'; }
+    S.builds[next.id] = { start: Math.round(S.time), until: Math.round(S.time + next.days * DAY * speed), done: 0 };
+    log(S, 'han empezado las obras de ' + next.name + note, '🚧 Empiezan las obras: ' + next.name, 2);
   }
   function finishBuilds(S) {
     PROJECTS.forEach(function (p) {
@@ -597,6 +604,8 @@
       log(S, 'el pueblo se ha quedado sin alcalde: habrá elecciones dentro de tres días', '🏛️ El pueblo, sin alcalde', 3);
     }
     if (S.campaign && (S.campaign.a === v.id || S.campaign.b === v.id)) S.campaign = null;
+    (S.shops || []).forEach(function (sh) { sh.employees = sh.employees.filter(function (id) { return id !== v.id; }); });
+    (S.shops || []).filter(function (sh) { return sh.owner === v.id; }).forEach(function (sh) { if (!died) closeShop(S, sh, 'sin dueño'); });
   }
 
   function heirsOf(S, v) {
@@ -632,6 +641,12 @@
         parts.push(nu.name + ' se queda con ' + where);
         log(S, nu.name + ' se queda al frente de ' + where + ' tras la muerte de ' + v.name, '🔑 ' + nu.name + ' lleva ahora ' + where, 3, [nu.id, v.id]);
       }
+    });
+    // negocios nuevos: los hereda la familia directa; si no hay, cierran
+    (S.shops || []).filter(function (x) { return x.owner === v.id; }).forEach(function (sh) {
+      const nu = [v.partner && byId(S, v.partner)].concat(childrenOf(S, v).filter(isAdult)).filter(function (o) { return o && o !== v && !ownsBusiness(S, o); })[0];
+      if (nu) { sh.owner = nu.id; sh.employees = sh.employees.filter(function (id) { return id !== nu.id; }); parts.push(nu.name + ' hereda ' + SHOP_TYPES[sh.type].name); }
+      else sh.owner = null;   // economyDay la cerrará
     });
     return parts;
   }
@@ -753,6 +768,148 @@
       });
     }
   }
+  // =====================================================================
+  // ECONOMÍA VIVA: productos, cadenas de producción y negocios que nacen y quiebran
+  // =====================================================================
+  const SHOP_TYPES = {
+    almazara: { name: 'la almazara', icon: '🫒', price: 0, needs: function (S) { return isBuilt(S, 'olivar'); }, fits: ['trabajador', 'ahorrador'] },
+    bodega: { name: 'la bodega', icon: '🍷', price: 0, needs: function (S) { return isBuilt(S, 'vina'); }, fits: ['trabajador', 'juerguista', 'ahorrador'] },
+    granja: { name: 'la granja de cabras', icon: '🐐', price: 0, needs: function () { return true; }, fits: ['trabajador', 'ahorrador', 'tímido'] },
+    casarural: { name: 'la casa rural', icon: '🛏️', price: 0, needs: function (S) { return S.level >= 3; }, fits: ['alegre', 'romántico', 'trabajador'] },
+    peluqueria: { name: 'la peluquería', icon: '💈', price: 8, needs: function (S) { return S.villagers.length >= 22; }, fits: ['cotilla', 'alegre'] },
+    taberna: { name: 'la taberna', icon: '🍻', price: 1.8, needs: function (S) { return S.villagers.length >= 24; }, fits: ['juerguista', 'alegre'] }
+  };
+  function ensureEconomy(S) {
+    S.goods = S.goods || { trigo: 0, harina: 0, aceituna: 0, aceite: 0, uva: 0, vino: 0, queso: 0 };
+    S.shops = S.shops || []; S.shopSeq = S.shopSeq || 1;
+  }
+  function shopName(S, sh) { const o = byId(S, sh.owner); return SHOP_TYPES[sh.type].name + (o ? ' de ' + o.name : ''); }
+  function ownsBusiness(S, v) { return Object.keys(S.biz).some(function (k) { return S.biz[k].owner === v.id; }) || (S.shops || []).some(function (x) { return x.owner === v.id; }); }
+  function worksFor(S, v) { return (S.shops || []).find(function (x) { return x.employees.indexOf(v.id) >= 0; }); }
+  function closeShop(S, sh, why) {
+    S.shops = S.shops.filter(function (x) { return x !== sh; });
+    const o = byId(S, sh.owner), name = SHOP_TYPES[sh.type].name;
+    if (o && why === 'quiebra') { o.needs.social = clamp(o.needs.social + 40, 0, 100); remember(o, 'quiebra', null, 0, S.time); }
+    const text = why === 'quiebra' ? (o ? o.name : 'su dueño') + ' ha tenido que cerrar ' + name + ': no salían las cuentas. Los acreedores ya se han llevado hasta las sillas'
+      : 'cierra ' + name + ', que se ha quedado sin dueño';
+    log(S, text, '🔒 Cierra ' + name, 3, o ? [o.id] : []);
+    milestone(S, '🔒', 'Cierra ' + name + (o ? ' de ' + o.name : '') + (why === 'quiebra' ? ' por la crisis' : ''));
+  }
+  function openShops(S, day) {
+    if (S.shops.length >= 5 || day % 4 !== 0) return;
+    const free = Object.keys(SHOP_TYPES).filter(function (t) { return SHOP_TYPES[t].needs(S) && !S.shops.some(function (x) { return x.type === t; }); });
+    if (!free.length) return;
+    const cand = adults(S).filter(function (v) {
+      return v.money > 480 && v.age < 66 && ['cura', 'guardia', 'médico'].indexOf(v.job) < 0 && !ownsBusiness(S, v) && !worksFor(S, v) && S.houses[v.home] !== undefined;
+    }).sort(function (a, b) { return b.money - a.money; });
+    for (let i = 0; i < cand.length; i++) {
+      const v = cand[i];
+      const fit = free.filter(function (t) { return SHOP_TYPES[t].fits.some(function (tr) { return has(v, tr); }); });
+      if (!fit.length || rnd(S) > 0.6) continue;
+      const type = pick(S, fit), T0 = SHOP_TYPES[type];
+      v.money -= 400;
+      const sh = { id: 's' + (S.shopSeq++), type: type, owner: v.id, cash: 400, opened: day, employees: [], badDays: 0, price: T0.price, sales: 0 };
+      let help = '';
+      if (S.mayorSide === 'progreso' && (S.arcas || 0) >= 150) { S.arcas -= 150; sh.cash += 150; help = ', con una ayuda de 150 euros del ayuntamiento'; }
+      S.shops.push(sh);
+      addFame(S, 6);
+      log(S, v.name + ' ha invertido sus ahorros en abrir ' + T0.name + help + '. Medio pueblo ha pasado a curiosear', T0.icon + ' Abre ' + shopName(S, sh), 3, [v.id], { shop: sh.id });
+      milestone(S, T0.icon, v.name + ' abre ' + T0.name);
+      return;
+    }
+  }
+  function economyDay(S, day) {
+    ensureEconomy(S);
+    const G = S.goods, yesterday = day - 1, rainy = S.weather === 'lluvia';
+    // producción del campo
+    const farmers = adults(S).filter(function (v) { return v.job === 'agricultor' && v.days.trabajo === yesterday; }).length;
+    G.trigo += farmers * S.harvest / 100 * 6;
+    if (isBuilt(S, 'olivar')) G.aceituna += 6 + S.harvest / 10;
+    if (isBuilt(S, 'vina')) G.uva += 5 + S.harvest / 12;
+    // molino: trigo → harina
+    if (isBuilt(S, 'molino')) { const m = Math.min(G.trigo, 40); G.trigo -= m; G.harina += m * 0.8; }
+    else G.trigo = Math.min(G.trigo, 200);   // sin molino, el trigo se vende fuera a bajo precio
+    // negocios
+    S.shops.slice().forEach(function (sh) {
+      const o = byId(S, sh.owner);
+      if (!o) { closeShop(S, sh, 'sin dueño'); return; }
+      let income = 0;
+      if (sh.type === 'almazara') { const a = Math.min(G.aceituna, 30); G.aceituna -= a; G.aceite += a * 0.25; const s = Math.min(G.aceite, 7); G.aceite -= s; income += s * 9; }
+      else if (sh.type === 'bodega') {
+        const u = Math.min(G.uva, 25); G.uva -= u; G.vino += u * 0.6; const s = Math.min(G.vino, 10); G.vino -= s; income += s * 4;
+        const bar = byId(S, S.biz.bar.owner); if (bar && bar.money > 30 && s > 0) { bar.money -= 6; income += 6; }
+      }
+      else if (sh.type === 'granja') { G.queso += 4; const s = Math.min(G.queso, 4); G.queso -= s; income += s * 7; }
+      else if (sh.type === 'casarural') income += 12 + S.level * 9 + (fiestaOn(S) ? 20 : 0) + (rainy ? -10 : 0);
+      sh.cash += income;
+      // gastos: suministros y sueldos
+      sh.cash -= 24 + 18 * sh.employees.length;
+      sh.employees.forEach(function (id) { const e = byId(S, id); if (e) e.money += 18; });
+      sh.lastIncome = Math.round(income + (sh.sales || 0) * sh.price - (sh.lastSales || 0) * sh.price); sh.lastSales = sh.sales || 0;
+      // el dueño se lleva beneficios cuando hay de sobra
+      if (sh.cash > 700) { sh.cash -= 200; o.money += 200; }
+      // contratar a alguien que no tenga mucho que hacer
+      if (sh.cash > 450 && sh.employees.length < 2) {
+        const hire = adults(S).find(function (v) { return v !== o && !ownsBusiness(S, v) && !worksFor(S, v) && ['costurero', 'jubilado'].indexOf(v.job) >= 0 && v.age < 66 && v.money < 300; });
+        if (hire) { sh.employees.push(hire.id); addRel(S, hire.id, o.id, 10); log(S, o.name + ' ha contratado a ' + hire.name + ' en ' + SHOP_TYPES[sh.type].name, '🤝 ' + hire.name + ' entra a trabajar en ' + SHOP_TYPES[sh.type].name, 2, [o.id, hire.id]); }
+      }
+      // si las cuentas no dan, primero se despide a alguien
+      if (sh.cash < 150 && sh.employees.length) {
+        const out = byId(S, sh.employees.pop());
+        if (out) { addRel(S, out.id, o.id, -12); out.needs.social = clamp(out.needs.social + 25, 0, 100); log(S, o.name + ' ha tenido que despedir a ' + out.name + ' de ' + SHOP_TYPES[sh.type].name + ': las cuentas no salen', '📉 ' + o.name + ' despide a ' + out.name, 3, [o.id, out.id]); }
+      }
+      // tres días seguidos en números rojos: si el dueño no puede poner dinero, quiebra
+      if (sh.cash < 0) {
+        if (o.money > 150) { o.money -= 120; sh.cash += 120; sh.badDays++; }
+        else sh.badDays += 2;
+      } else sh.badDays = Math.max(0, sh.badDays - 1);
+      if (sh.badDays >= 5) closeShop(S, sh, 'quiebra');
+    });
+    // excedentes: lo que nadie transforma se vende fuera, y el dinero va a las arcas (el molino y los campos son comunales)
+    const sell = function (k, keep, price) { if (G[k] > keep) { const s = G[k] - keep; G[k] = keep; S.arcas = (S.arcas || 0) + s * price; } };
+    sell('harina', 60, 0.5); sell('trigo', 120, 0.3);
+    if (!S.shops.some(function (x) { return x.type === 'almazara'; })) sell('aceituna', 80, 0.4);
+    if (!S.shops.some(function (x) { return x.type === 'bodega'; })) sell('uva', 80, 0.4);
+    openShops(S, day);
+    mayorSpends(S, day);
+  }
+  // Cuando sobra dinero en las arcas, el alcalde lo gasta a su manera
+  function mayorSpends(S, day) {
+    if (wdOf(S) !== 4 || (S.arcas || 0) < 600 || !S.mayor || PROJECTS.some(function (p) { return p.level <= S.level && !isBuilt(S, p.id); })) return;
+    const m = byId(S, S.mayor); if (!m) return;
+    S.arcas -= 300;
+    if (S.mayorSide === 'tradicion') {
+      orchestraWeekend(S);
+      addFaith(S, 6);
+      log(S, m.name + ' ha pagado con dinero del ayuntamiento unas fiestas el sábado, con procesión y orquesta', '🎺 Fiestas pagadas por el ayuntamiento', 3, [m.id]);
+    } else {
+      addFame(S, 25);
+      S.villagers.forEach(function (v) { v.needs.social = clamp(v.needs.social - 10, 0, 100); });
+      const what = pick(S, ['ha asfaltado la Calle Mayor', 'ha puesto internet en el ayuntamiento', 'ha arreglado el frontón', 'ha abierto una biblioteca en el ayuntamiento', 'ha puesto un parque infantil junto a la escuela']);
+      log(S, m.name + ' ' + what + ' con el dinero de las arcas. El pueblo gana fama', '🏗️ ' + m.name + ' ' + what, 3, [m.id]);
+    }
+  }
+  function orchestraWeekend(S) {
+    const today = Math.floor(S.time / DAY) * DAY;
+    S.fiestaFrom = today + DAY + 19 * 60; S.fiestaUntil = S.fiestaFrom + 5 * 60;
+  }
+  function economy(S) {
+    ensureEconomy(S);
+    const G = S.goods;
+    return {
+      goods: { trigo: Math.round(G.trigo), harina: Math.round(G.harina), aceituna: Math.round(G.aceituna), aceite: Math.round(G.aceite), uva: Math.round(G.uva), vino: Math.round(G.vino), queso: Math.round(G.queso) },
+      molino: isBuilt(S, 'molino'), olivar: isBuilt(S, 'olivar'), vina: isBuilt(S, 'vina'),
+      breadLocal: (S.biz.panaderia && S.biz.panaderia.local) || 0, arcas: Math.round(S.arcas || 0),
+      prices: { pan: S.biz.panaderia.price, cana: S.biz.bar.price },
+      shops: S.shops.map(function (sh) {
+        const o = byId(S, sh.owner);
+        return { id: sh.id, type: sh.type, icon: SHOP_TYPES[sh.type].icon, name: SHOP_TYPES[sh.type].name, owner: o ? o.name : '—', home: o ? o.home : null, cash: Math.round(sh.cash),
+          state: sh.badDays >= 2 ? 'apuros' : sh.cash > 500 ? 'va muy bien' : 'tira', employees: sh.employees.map(function (id) { const e = byId(S, id); return e ? e.name : null; }).filter(Boolean), since: sh.opened };
+      }),
+      fixed: Object.keys(S.biz).map(function (k) { const o = byId(S, S.biz[k].owner); return { id: k, name: BY_ID[k] ? BY_ID[k].name : k, owner: o ? o.name : '—', price: S.biz[k].price }; })
+    };
+  }
+
   // ---------- Vivienda: cada casa tiene un tope de gente; si no caben, se construye otra ----------
   function builtHomes(S) { return HOMES.filter(function (b) { return S.houses[b.id] !== undefined; }); }
   function occupants(S, id) { return S.villagers.filter(function (v) { return v.home === id; }); }
@@ -925,6 +1082,15 @@
       (v.offset + dayOf(S)) % 3 === 0) return { act: 'trabajar en la obra', place: 'obra', dur: 50 };
     // servicios públicos
     if (v.job === 'médico' && work && wd < 5) return { act: 'pasar consulta', place: 'consultorio', dur: 60 };
+    // negocios del pueblo: dueños y empleados trabajan en ellos; la clientela va a la peluquería
+    if (S.shops && S.shops.length) {
+      const mine = S.shops.find(function (x) { return x.owner === v.id || x.employees.indexOf(v.id) >= 0; });
+      if (mine && work && wd < 6) { const o = byId(S, mine.owner); if (o) return { act: 'trabajar en ' + SHOP_TYPES[mine.type].name, place: o.home, dur: 60 }; }
+      const pelu = S.shops.find(function (x) { return x.type === 'peluqueria'; });
+      if (pelu && pelu.owner !== v.id && v.age >= 10 && ((h >= 10 && h < 13) || (h >= 17 && h < 20)) && v.days.pelu !== day && (day + v.offset + 40) % 9 === 0 && v.money > 20) {
+        const o = byId(S, pelu.owner); if (o) return { act: 'ir a la peluquería', place: o.home, dur: 30, buy: 'shop:' + pelu.id };
+      }
+    }
     // ayuntamiento y elecciones
     if (S.mayor === v.id && wd < 5 && h >= 10 && h < 12) return { act: 'despachar', place: 'ayuntamiento', dur: 60 };
     if (S.nextElection === day && isAdult(v) && h >= 10 && h < 19.5 && v.days.voto !== day && rnd(S) < 0.35) { v.days.voto = day; return { act: 'votar', place: 'ayuntamiento', dur: 15 }; }
@@ -968,7 +1134,16 @@
       if (S.flags.sinPan === day) return;
       const p = S.biz.panaderia;
       if (!pay(S, v, p.owner, p.price)) v.days.sinPan = day;
-      else { v.needs.hunger = clamp(v.needs.hunger - 10, 0, 100); p.sales = (p.sales || 0) + 1; }
+      else {
+        v.needs.hunger = clamp(v.needs.hunger - 10, 0, 100); p.sales = (p.sales || 0) + 1;
+        // cadena del trigo: con harina del molino del pueblo sale más barato; si no, se compra fuera
+        const g0 = S.goods || {}, baker = byId(S, p.owner);
+        if (g0.harina >= 0.4) { g0.harina -= 0.4; p.local = (p.local || 0) + 1; }
+        else if (baker) baker.money = Math.max(0, baker.money - 0.5);
+      }
+    } else if (d.buy && d.buy.indexOf('shop:') === 0) {
+      const sh = (S.shops || []).find(function (x) { return 'shop:' + x.id === d.buy; });
+      if (sh && v.money >= sh.price) { v.money -= sh.price; sh.cash += sh.price; sh.sales = (sh.sales || 0) + 1; if (sh.type === 'peluqueria') v.days.pelu = day; }
     } else if (d.buy === 'bar') {
       const b = S.biz.bar;
       if (pay(S, v, b.owner, b.price)) b.sales = (b.sales || 0) + 1;
@@ -988,6 +1163,15 @@
 
   function decide(S, v, teleport) {
     const d = desired(S, v);
+    // competencia: si hay taberna, parte de la clientela del bar se va allí
+    if (d.buy === 'bar' && S.shops && S.shops.length) {
+      const tb = S.shops.find(function (x) { return x.type === 'taberna'; });
+      const barOwner = S.biz.bar && S.biz.bar.owner;
+      if (tb && tb.owner !== v.id && (getRel(S, v.id, tb.owner) > getRel(S, v.id, barOwner) || (tb.price < S.biz.bar.price && rnd(S) < 0.5) || rnd(S) < 0.3)) {
+        const o = byId(S, tb.owner);
+        if (o) { d.place = o.home; d.buy = 'shop:' + tb.id; d.act = 'tomar algo en la taberna'; }
+      }
+    }
     if (d.buy && (v.act !== d.act || v.actPlace !== d.place)) spend(S, v, d);
     if ((d.act === 'misa' || d.act === 'entierro') && v.act !== d.act) addFaith(S, d.act === 'misa' ? 0.8 : 0.4);
     if (d.act === 'misa' && v.act !== 'misa' && v.job !== 'cura' && isAdult(v) && v.money > 5) {
@@ -1173,6 +1357,7 @@
     lifeDay(S, day, day % 7 === 1);
     housingDay(S);
     electionDay(S, day);
+    economyDay(S, day);
     townDay(S);
   }
 
@@ -1671,8 +1856,8 @@
       when: function (S) { return {}; },
       text: function (S, c) { return 'El tejado de la iglesia tiene goteras y el puente del río cruje. En el ayuntamiento solo hay dinero para una obra.'; },
       opts: [
-        { label: 'Arreglar la iglesia', apply: function (S) { addFaith(S, 15); const cura = S.villagers.find(function (o) { return o.job === 'cura'; }); later(S, 'ya han arreglado el tejado de la iglesia' + (cura ? ': ' + cura.name + ' da misa sin goteras' : ''), '⛪ Iglesia sin goteras'); return 'Se arregla la iglesia. Los devotos te lo agradecen (+15 de fe).'; } },
-        { label: 'Arreglar el puente', apply: function (S) { addFame(S, 10); adultsWhere(S, function (v) { return v.job === 'agricultor'; }).forEach(function (v) { v.needs.social = clamp(v.needs.social - 15, 0, 100); }); later(S, 'el puente del río ya no cruje: los agricultores cruzan sin miedo con el remolque', '🌉 Puente arreglado'); return 'Se arregla el puente. Los agricultores, encantados (+10 de fama).'; } }
+        { label: 'Arreglar la iglesia', apply: function (S) { S.arcas = Math.max(0, (S.arcas || 0) - 80); addFaith(S, 15); const cura = S.villagers.find(function (o) { return o.job === 'cura'; }); later(S, 'ya han arreglado el tejado de la iglesia' + (cura ? ': ' + cura.name + ' da misa sin goteras' : ''), '⛪ Iglesia sin goteras'); return 'Se arregla la iglesia. Los devotos te lo agradecen (+15 de fe).'; } },
+        { label: 'Arreglar el puente', apply: function (S) { S.arcas = Math.max(0, (S.arcas || 0) - 80); addFame(S, 10); adultsWhere(S, function (v) { return v.job === 'agricultor'; }).forEach(function (v) { v.needs.social = clamp(v.needs.social - 15, 0, 100); }); later(S, 'el puente del río ya no cruje: los agricultores cruzan sin miedo con el remolque', '🌉 Puente arreglado'); return 'Se arregla el puente. Los agricultores, encantados (+10 de fama).'; } }
       ], none: 'Como nadie se puso de acuerdo, no se arregló ni la iglesia ni el puente' },
     { id: 'robo', every: 6,
       when: function (S) {
@@ -1944,6 +2129,7 @@
     'ir al cole': 'en la escuela', 'hacer la compra': 'haciendo la compra en la tienda', 'atender la tienda': 'atendiendo la tienda',
     'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra',
     'en casa': 'en casa con la familia', entierro: 'en el entierro',
+    'tomar algo en la taberna': 'tomando algo en la taberna', 'ir a la peluquería': 'en la peluquería',
     despachar: 'despachando en el ayuntamiento', votar: 'votando en el ayuntamiento', 'dar un mitin': 'dando un mitin en la plaza',
     'ir al médico': 'en el médico', 'pasar consulta': 'pasando consulta', patrullar: 'patrullando el pueblo',
     empadronarse: 'empadronándose en el ayuntamiento', 'hacer papeles': 'haciendo papeles en el ayuntamiento'
@@ -1972,11 +2158,15 @@
     if (S.preg && S.preg.some(function (p) { return p.a === v.id || p.b === v.id; })) notes.unshift('Espera un bebé');
     if (S.campaign && (S.campaign.a === v.id || S.campaign.b === v.id)) notes.unshift('Se presenta a las elecciones por ' + SIDE_NAME[S.campaign.a === v.id ? S.campaign.sideA : S.campaign.sideB]);
     if (S.mayor === v.id) notes.unshift(g(v, 'Alcalde', 'Alcaldesa') + ' del pueblo, por ' + SIDE_NAME[S.mayorSide]);
+    (S.shops || []).forEach(function (sh) {
+      if (sh.owner === v.id) notes.unshift(g(v, 'Dueño', 'Dueña') + ' de ' + SHOP_TYPES[sh.type].name + (sh.badDays >= 2 ? ' (pasa apuros)' : ''));
+      else if (sh.employees.indexOf(v.id) >= 0) notes.unshift('Trabaja en ' + shopName(S, sh));
+    });
     const partner = v.partner && byId(S, v.partner);
     const parents = (v.parents || []).map(function (id) { const p = byId(S, id); if (p) return p.name; const d = (S.deceased || []).find(function (x) { return x.id === id; }); return d ? d.name + ' †' : null; }).filter(Boolean);
     return {
       fullName: fullName(v), sur: v.sur || '', parents: parents, address: addressOf(BY_ID[v.home]), kids: childrenOf(S, v).map(function (k) { return k.name; }), widow: !!v.widow && !v.partner,
-      name: v.name, age: v.age, job: jobName(v), traits: v.traits, act: ACTS[v.act] || v.act, mood: moodOf(v),
+      name: v.name, age: v.age, job: jobName(v), traits: v.traits, act: ACTS[v.act] || String(v.act).replace(/^trabajar en /, 'trabajando en '), mood: moodOf(v),
       money: isAdult(v) ? Math.round(v.money) : null,
       partner: partner ? partner.name : null,
       partnerLabel: partner ? (v.married ? g(v, 'Casado con', 'Casada con') : g(partner, 'Novio', 'Novia')) : null,
@@ -2040,6 +2230,7 @@
     S.builds = S.builds || {}; S.milestones = S.milestones || []; S.level = S.level || 1;
     if (S.faith === undefined) S.faith = 50;
     S.dilemmaUsed = S.dilemmaUsed || {}; S.followups = S.followups || [];
+    ensureEconomy(S);
     assignFamilies(S);   // apellidos y familias para pueblos de antes del ciclo de vida
     ensureMayor(S);      // pueblos de antes del ayuntamiento: el vecino con más prestigio hace de alcalde
     if (S.map !== MAP_VERSION) {
@@ -2061,6 +2252,7 @@
     // progreso (fase 1.5)
     LEVELS: LEVELS, PROJECTS: PROJECTS, MILL: MILL_T, OLIVE: OLIVE_T, LANE_ROW: LANE_ROW, ROAD_ROWS: ROAD_ROWS,
     // ciclo de vida
+    VINE: VINE_T, economy: economy, SHOP_TYPES: SHOP_TYPES,
     CEMETERY: CEMETERY_T, families: families, findDeceased: findDeceased, describeDeceased: describeDeceased, fullName: fullName,
     // mapa de la fase 2
     MAP_VERSION: MAP_VERSION, STREETS: STREETS, HOMES: HOMES, LAMPS: LAMPS, FIELDS: FIELDS, ERA: ERA_T, RIVER_PTS: RIVER_PTS, ROAD_PTS: ROAD_PTS,

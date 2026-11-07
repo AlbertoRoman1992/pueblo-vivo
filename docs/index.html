@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
-<script src="sim.js?v=7"></script>
+<script src="sim.js?v=8"></script>
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -188,6 +188,7 @@
         <button class="tab" data-tab="hitos">Hitos</button>
         <button class="tab" data-tab="cronica">Crónica</button>
         <button class="tab" data-tab="vecinos">Familias</button>
+        <button class="tab" data-tab="economia">Economía</button>
         <button class="close" id="book-close">✕</button>
       </header>
       <div class="body" id="book-body"></div>
@@ -283,10 +284,44 @@
 
   // ---------- Fondo (se repinta solo cuando cambia algo) ----------
   let snowy = 0;
+  let shopHomes = {};
+  const SHOP_LOOK = { almazara: ['#6b8e23', '#c9d68a'], bodega: ['#7b2d3a', '#e8c9a0'], granja: ['#a0855a', '#f4f1ea'], casarural: ['#3f6b8a', '#f6ead2'], peluqueria: ['#c0392b', '#ffffff'], taberna: ['#5b3b22', '#e8b54a'] };
+  // Cartel y toldo del negocio en la fachada de la casa de su dueño
+  function drawShopFront(c, b, x, y, type) {
+    const L = SHOP_LOOK[type] || ['#5b3b22', '#f6ead2'], w = b.pw, h = b.ph;
+    const ay = y + h - 15;
+    for (let i = 0; i < w - 4; i += 4) rect(c, x + 2 + i, ay, 2, 3, i % 8 ? L[1] : L[0]);
+    rect(c, x + 2, ay + 3, w - 4, 1, 'rgba(0,0,0,.25)');
+    const sx = x + w - 9, sy = y + h - 22;
+    rect(c, sx + 3, sy - 2, 1, 2, '#3a3030'); rect(c, sx, sy, 8, 6, L[0]); rect(c, sx + 1, sy + 1, 6, 4, L[1]);
+    if (type === 'almazara') { rect(c, sx + 2, sy + 2, 4, 2, '#6b8e23'); }
+    else if (type === 'bodega') { rect(c, sx + 3, sy + 1, 2, 3, '#7b2d3a'); rect(c, sx + 2, sy + 4, 4, 1, '#7b2d3a'); }
+    else if (type === 'granja') { rect(c, sx + 2, sy + 2, 4, 2, '#f4f1ea'); rect(c, sx + 1, sy + 1, 2, 1, '#5b3b22'); }
+    else if (type === 'casarural') { rect(c, sx + 2, sy + 2, 4, 2, '#3f6b8a'); rect(c, sx + 2, sy + 1, 1, 1, '#3f6b8a'); }
+    else if (type === 'peluqueria') { rect(c, x + 1, y + h - 12, 2, 9, '#ffffff'); for (let k = 0; k < 9; k += 3) rect(c, x + 1, y + h - 12 + k, 2, 1, '#c0392b'); rect(c, sx + 2, sy + 2, 4, 1, '#2b1d14'); }
+    else if (type === 'taberna') { rect(c, sx + 2, sy + 1, 3, 4, '#e8b54a'); rect(c, sx + 5, sy + 2, 1, 2, '#e8b54a'); }
+    if (type === 'granja') { rect(c, x - 6, y + h - 5, 5, 3, '#f4f1ea'); rect(c, x - 6, y + h - 6, 2, 1, '#f4f1ea'); rect(c, x - 5, y + h - 2, 1, 2, '#5b3b22'); rect(c, x - 3, y + h - 2, 1, 2, '#5b3b22'); }   // cabra
+    if (type === 'bodega' || type === 'almazara') { rect(c, x + w + 1, y + h - 6, 5, 6, '#7a4f2a'); rect(c, x + w + 1, y + h - 4, 5, 1, '#5b3b22'); }   // barrica
+  }
+  function drawVines(c) {
+    const p = P.buildProgress(S, 'vina'), V = P.VINE;
+    if (p <= 0) return;
+    const rows = Math.max(1, Math.round(V.h * 2 * Math.min(1, p)));
+    for (let r = 0; r < rows; r++) {
+      const y = V.r * T + 3 + r * 4;
+      rect(c, V.c * T, y + 2, V.w * T, 1, '#7a5532');
+      for (let x = V.c * T + 2; x < (V.c + V.w) * T - 2; x += 5) {
+        rect(c, x, y, 3, 2, p >= 1 ? (SEASON === 'otono' ? '#9c6b2f' : '#4f7a36') : '#7f9a48');
+        if (p >= 1 && (SEASON === 'otono' || SEASON === 'verano') && (x + r) % 3 === 0) rect(c, x + 1, y + 1, 1, 1, '#5b2a5a');
+      }
+    }
+  }
   function backgroundKey() {
     const b = P.PROJECTS.map(function (p) { return p.id + Math.floor(P.buildProgress(S, p.id) * 10); }).join('');
     const hp = S.homeObra ? S.homeObra.id + Math.floor(P.homeProgress(S, S.homeObra.id) * 10) : '';
-    return JSON.stringify(S.houses) + b + hp + (snowy > .5 ? 'n' : '') + '|' + (S.deceased || []).length;
+    shopHomes = {};
+    (S.shops || []).forEach(function (sh) { const o = P.byId(S, sh.owner); if (o) shopHomes[o.home] = sh.type; });
+    return JSON.stringify(S.houses) + b + hp + (snowy > .5 ? 'n' : '') + '|' + (S.deceased || []).length + '|' + JSON.stringify(shopHomes);
   }
   const marginTrees = [], poplars = [];
   function paintBackground() {
@@ -324,7 +359,7 @@
         else rect(c, x + 2, y + 1, 3, 1, '#5f7f44');
       }
     }
-    drawOlives(c); drawMillBody(c); drawCemetery(c);
+    drawOlives(c); drawVines(c); drawMillBody(c); drawCemetery(c);
     P.BUILDINGS.slice().sort(function (a, b) { return a.r + a.h - (b.r + b.h); }).forEach(function (b) {
       if (b.type === 'casa') drawHouseLot(c, b); else if (b.lot) drawLot(c, b); else drawCivic(c, b, b.x, b.y);
     });
@@ -470,7 +505,7 @@
   }
   function drawHouseLot(c, b) {
     const p = P.homeProgress(S, b.id);
-    if (p >= 1) { drawHouse(c, b, b.x, b.y); return; }
+    if (p >= 1) { drawHouse(c, b, b.x, b.y); if (shopHomes[b.id]) drawShopFront(c, b, b.x, b.y, shopHomes[b.id]); return; }
     b.windows = null; b.chimney = null;
     if (p <= 0) return;   // solar vacío: de momento es campo
     rect(c, b.x - 1, b.y + 4, b.pw + 2, b.ph - 3, '#b89a6a');
@@ -1137,7 +1172,12 @@
       sub = P.streetName(b.dc, b.dr).replace(/^la /, '').replace(/^las /, '');
       extra = built ? '<div class="row">' + esc(info[1]) + '</div>' : '<div class="row">🚧 Todavía es un solar: se construirá cuando el pueblo crezca.</div>';
     }
-    const html = '<button class="x" id="card-x">✕</button><div class="head"><span style="font-size:2.4em">' + info[0] + '</span><div><h2>' + esc(title) + '</h2><div class="sub">' + esc(sub) + '</div></div></div>' +
+    let icon = info[0];
+    if (b.type === 'casa') {
+      const sh = P.economy(S).shops.find(function (s) { return s.home === b.id; });
+      if (sh) { icon = sh.icon; extra = '<div class="row">' + sh.icon + ' Aquí está ' + esc(sh.name) + ' de ' + esc(sh.owner) + ' · ' + (sh.state === 'apuros' ? 'pasa apuros' : sh.state) + (sh.employees.length ? ' · trabajan ' + esc(sh.employees.join(', ')) : '') + '</div>' + extra; }
+    }
+    const html = '<button class="x" id="card-x">✕</button><div class="head"><span style="font-size:2.4em">' + icon + '</span><div><h2>' + esc(title) + '</h2><div class="sub">' + esc(sub) + '</div></div></div>' +
       extra + (inside.length ? '<div class="row">Dentro ahora: ' + esc(inside.join(', ')) + '</div>' : '');
     if (refresh && el.dataset.h === html) return;
     el.dataset.h = html; el.innerHTML = html; cardFor = null;
@@ -1188,6 +1228,21 @@
       h += '<p class="empty" style="margin-top:.6em">La fama sube cada día con el ánimo de los vecinos, la cosecha, las casas arregladas, las bodas y la gente que llega. Cuando no caben en sus casas, el pueblo construye casas nuevas.</p>';
     } else if (bookTab === 'hitos') {
       h += '<ul class="tl">' + (S.milestones || []).slice().reverse().map(function (m) { return '<li><span class="d">Día ' + m.d + '</span><span class="i">' + m.i + '</span><span>' + esc(m.text) + '</span></li>'; }).join('') + '</ul>';
+    } else if (bookTab === 'economia') {
+      const e = P.economy(S), G = e.goods;
+      h += '<div class="lvl-big">Economía del pueblo</div><p style="font-size:.85em">Lo que se produce en el campo se transforma en el pueblo; lo que sobra se vende fuera y el dinero va a las arcas del ayuntamiento (' + e.arcas.toLocaleString('es-ES') + ' €).</p>';
+      h += '<h3>Cadenas de producción</h3>';
+      const chain = function (ic, steps) { return '<div class="proj"><span class="pic">' + ic + '</span><span class="pname">' + steps.map(function (s) { return '<span style="opacity:' + (s[1] ? 1 : .45) + '">' + s[0] + '</span>'; }).join(' → ') + '</span></div>'; };
+      const has = function (t) { return e.shops.some(function (s) { return s.type === t; }); };
+      h += chain('🌾', [['Trigo ' + G.trigo + ' kg', true], ['Molino' + (e.molino ? '' : ' (sin restaurar)'), e.molino], ['Harina ' + G.harina + ' kg', e.molino], ['Pan (' + e.breadLocal + ' hogazas con harina del pueblo)', e.breadLocal > 0]]);
+      h += chain('🫒', [['Olivar' + (e.olivar ? '' : ' (sin plantar)'), e.olivar], ['Aceituna ' + G.aceituna + ' kg', e.olivar], ['Almazara' + (has('almazara') ? '' : ' (nadie la ha abierto)'), has('almazara')], ['Aceite', has('almazara')]]);
+      h += chain('🍇', [['Viñedo' + (e.vina ? '' : ' (sin plantar)'), e.vina], ['Uva ' + G.uva + ' kg', e.vina], ['Bodega' + (has('bodega') ? '' : ' (nadie la ha abierto)'), has('bodega')], ['Vino ' + G.vino + ' l', has('bodega')]]);
+      h += chain('🐐', [['Granja de cabras' + (has('granja') ? '' : ' (nadie la ha abierto)'), has('granja')], ['Queso', has('granja')]]);
+      h += '<h3>Negocios de los vecinos</h3>';
+      h += e.shops.length ? e.shops.map(function (s) {
+        return '<div class="proj"><span class="pic">' + s.icon + '</span><span class="pname"><b>' + esc(cap(s.name)) + '</b> de ' + esc(s.owner) + (s.employees.length ? ' · trabajan: ' + esc(s.employees.join(', ')) : '') + '<br><small style="opacity:.75">abrió el día ' + s.since + ' · caja ' + s.cash + ' €</small></span><span class="chip ' + (s.state === 'apuros' ? 'bloqueado' : s.state === 'va muy bien' ? 'hecho' : 'pendiente') + '">' + (s.state === 'apuros' ? '⚠️ Apuros' : s.state === 'va muy bien' ? '📈 Va muy bien' : '➖ Tira') + '</span></div>';
+      }).join('') : '<p class="empty">Todavía nadie ha abierto un negocio. Hace falta algún vecino con ahorros y ganas: el pueblo necesita gente, un olivar o un viñedo, o llegar a pueblo con encanto.</p>';
+      h += '<h3>Negocios de siempre</h3>' + e.fixed.map(function (f) { return '<div class="proj"><span class="pic">' + ({ panaderia: '🥖', bar: '🍺', tienda: '🛒' }[f.id] || '🏪') + '</span><span class="pname">' + esc(cap(f.name)) + ' de ' + esc(f.owner) + '</span><span class="chip pendiente">' + f.price.toFixed(2).replace('.', ',') + ' €</span></div>'; }).join('');
     } else if (bookTab === 'cronica') {
       const evs = S.events.filter(function (e) { return e.imp >= 2; }).slice(-40).reverse();
       h += evs.length ? '<ul class="tl">' + evs.map(function (e) { return '<li><span class="d">' + dayTime(e.t) + '</span><span>' + esc(cap(e.text)) + (/[.!?…»]$/.test(e.text) ? '' : '.') + '</span></li>'; }).join('') + '</ul>' : '<p class="empty">Todavía no ha pasado nada digno de contarse.</p>';
