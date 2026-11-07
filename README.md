@@ -69,6 +69,13 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - «Alexa, ¿quién es el alcalde?», «Alexa, ¿cuándo son las elecciones?», «Alexa, apoya a Carmen».
 - Todo funciona también en un Echo sin pantalla.
 
+## Fase 2, paso 4: economía viva
+
+- **Cadenas de producción.** Los agricultores sacan trigo según la cosecha; con el molino restaurado se hace harina y el pan de la panadería sale con harina del pueblo (si no, el panadero la compra fuera y gana menos). El olivar da aceituna y el viñedo nuevo (obra de nivel 3, al otro lado del río) da uva; hace falta que algún vecino monte una almazara o una bodega para convertirlas en aceite y vino.
+- **Negocios que nacen y quiebran.** Cada pocos días, un vecino con ahorros y carácter emprendedor puede abrir un negocio en su casa (se ve su toldo y su cartel): almazara, bodega, granja de cabras, casa rural, peluquería o taberna. La taberna le quita clientela al bar. Los negocios contratan a vecinos, pagan sueldos, despiden cuando van mal y, si no salen las cuentas, quiebran. Los hereda la familia.
+- **Arcas del ayuntamiento.** Pagan las obras (si no hay dinero, van lentas) y se llenan con la contribución y con lo que sobra de harina, trigo, aceituna y uva, que se vende fuera. Cuando sobran más de 600 €, el alcalde las gasta: la tradición paga fiestas con orquesta; el progreso, mejoras que dan fama. Con el progreso, quien abre un negocio recibe 150 € de ayuda.
+- **Libro → Economía:** las cadenas de producción, los negocios con su estado y sus empleados, y los precios de los negocios de siempre.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
