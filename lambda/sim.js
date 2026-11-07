@@ -442,6 +442,7 @@
     setRel(S, 'irene', 'quique', 30);
     setRel(S, 'nico', 'elena', 38);
     setRel(S, 'remedios', 'tomas', -15);
+    ensureMayor(S);
     S.villagers.forEach(function (v) { decide(S, v, true); });
     return S;
   }
@@ -497,9 +498,16 @@
 
   function startNextBuild(S) {
     if (building_(S)) return;
-    const next = PROJECTS.find(function (p) { return p.level <= S.level && !S.builds[p.id]; });
+    // el alcalde decide qué obra va primero según su bando
+    const pref = S.mayorSide === 'tradicion' ? ['plaza', 'olivar', 'molino', 'farolas', 'cuartel'] : S.mayorSide === 'progreso' ? ['escuela', 'consultorio', 'tienda', 'quiosco', 'farolas'] : [];
+    const avail = PROJECTS.filter(function (p) { return p.level <= S.level && !S.builds[p.id]; })
+      .sort(function (a, b) { const ia = pref.indexOf(a.id), ib = pref.indexOf(b.id); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || PROJECTS.indexOf(a) - PROJECTS.indexOf(b); });
+    const next = avail[0];
     if (!next) return;
-    S.builds[next.id] = { start: Math.round(S.time), until: Math.round(S.time + next.days * DAY), done: 0 };
+    // con un alcalde del progreso y dinero en las arcas, las obras van más rápido
+    const fast = S.mayorSide === 'progreso' && (S.arcas || 0) >= 80;
+    if (fast) S.arcas -= 60;
+    S.builds[next.id] = { start: Math.round(S.time), until: Math.round(S.time + next.days * DAY * (fast ? 0.7 : 1)), done: 0 };
     log(S, 'han empezado las obras de ' + next.name, '🚧 Empiezan las obras: ' + next.name, 2);
   }
   function finishBuilds(S) {
@@ -525,7 +533,8 @@
     addFame(S, gain);
     S.fameDay = S.fameToday || gain; S.fameToday = 0;
     // fe diaria: un poco siempre, más con vecinos contentos y devotos (las misas suman aparte)
-    addFaith(S, 2 + happiness(S) / 30 + S.villagers.filter(function (v) { return has(v, 'religioso'); }).length * 0.4);
+    addFaith(S, 2 + happiness(S) / 30 + S.villagers.filter(function (v) { return has(v, 'religioso'); }).length * 0.4 + (S.mayorSide === 'tradicion' ? 1.5 : 0));
+    if (S.mayorSide === 'progreso') addFame(S, 2);
     S.faithDay = Math.round(S.faithToday || 0); S.faithToday = 0;
     const lvl = levelFor(S.fame);
     while (S.level < lvl) {
@@ -583,6 +592,11 @@
     });
     S.debts = S.debts.filter(function (d) { return d.f !== v.id && d.t !== v.id; });
     S.preg = (S.preg || []).filter(function (p) { return p.a !== v.id && p.b !== v.id; });
+    if (S.mayor === v.id) {
+      S.mayor = null; S.nextElection = Math.min(S.nextElection || 1e9, dayOf(S) + 3); S.campaign = null;
+      log(S, 'el pueblo se ha quedado sin alcalde: habrá elecciones dentro de tres días', '🏛️ El pueblo, sin alcalde', 3);
+    }
+    if (S.campaign && (S.campaign.a === v.id || S.campaign.b === v.id)) S.campaign = null;
   }
 
   function heirsOf(S, v) {
@@ -911,6 +925,10 @@
       (v.offset + dayOf(S)) % 3 === 0) return { act: 'trabajar en la obra', place: 'obra', dur: 50 };
     // servicios públicos
     if (v.job === 'médico' && work && wd < 5) return { act: 'pasar consulta', place: 'consultorio', dur: 60 };
+    // ayuntamiento y elecciones
+    if (S.mayor === v.id && wd < 5 && h >= 10 && h < 12) return { act: 'despachar', place: 'ayuntamiento', dur: 60 };
+    if (S.nextElection === day && isAdult(v) && h >= 10 && h < 19.5 && v.days.voto !== day && rnd(S) < 0.35) { v.days.voto = day; return { act: 'votar', place: 'ayuntamiento', dur: 15 }; }
+    if (S.campaign && (S.campaign.a === v.id || S.campaign.b === v.id) && h >= 18 && h < 20 && !rain) return { act: 'dar un mitin', place: 'plaza', dur: 40 };
     if (v.job === 'guardia' && ((h >= 10 && h < 14) || (h >= 17 && h < 21.5))) return { act: 'patrullar', place: 'patrulla', dur: 25 };
     if (v.age >= 65 && isBuilt(S, 'consultorio') && h >= 10 && h < 12.5 && (day + v.offset + 40) % 7 === 0 && v.days.medico !== day) { v.days.medico = day; return { act: 'ir al médico', place: 'consultorio', dur: 30 }; }
     if (isAdult(v) && wd === 0 && h >= 10 && h < 12.5 && v.days.papeles !== day && rnd(S) < 0.08) { v.days.papeles = day; return { act: 'hacer papeles', place: 'ayuntamiento', dur: 20 }; }
@@ -1021,6 +1039,7 @@
       if (v.act === 'coser') v.money += 2 / 60 * d;
       if (v.act === 'trabajar' && v.actPlace === 'campo') v.stock += S.harvest / 100 / 60 * d;
       if (v.bubble && S.time > v.bubble.until) v.bubble = null;
+      if (v.act === 'dar un mitin' && !v.bubble && !v.path.length && rnd(S) < 0.04 * d) v.bubble = { text: pick(S, MITIN[S.campaign && S.campaign.a === v.id ? S.campaign.sideA : S.campaign ? S.campaign.sideB : 'progreso'] || MITIN.progreso), until: S.time + 8 };
 
       if (coarse) { if (S.time >= v.actUntil) decide(S, v, true); return; }
       if (v.path.length) {
@@ -1040,7 +1059,7 @@
     });
     if (Math.floor(S.time / 5) !== Math.floor(before / 5)) socialTick(S, coarse);
     if (Math.floor(S.time / DAY) !== Math.floor(before / DAY)) newDay(S);
-    if (Math.floor(S.time / 30) !== Math.floor(before / 30)) dilemmaTick(S, before);
+    if (Math.floor(S.time / 30) !== Math.floor(before / 30)) { dilemmaTick(S, before); electionTick(S); }
   }
 
   function wander(S, v, place) {
@@ -1096,6 +1115,13 @@
         }
       });
     });
+    // lunes: contribución al ayuntamiento (más alta con un alcalde del progreso)
+    if (wd === 0 && S.mayor) {
+      const tax = S.mayorSide === 'progreso' ? 10 : 4;
+      let got = 0;
+      adults(S).forEach(function (v) { if (v.job !== 'cura' && v.money > tax * 3) { v.money -= tax; got += tax; } });
+      S.arcas = (S.arcas || 0) + got;
+    }
     // lunes: pensiones, facturas y precios
     if (wd === 0) {
       S.villagers.forEach(function (v) {
@@ -1146,6 +1172,7 @@
     });
     lifeDay(S, day, day % 7 === 1);
     housingDay(S);
+    electionDay(S, day);
     townDay(S);
   }
 
@@ -1522,6 +1549,109 @@
   }
 
   // =====================================================================
+  // ALCALDE Y ELECCIONES: dos bandos, campaña de tres días y votación cada 14
+  // =====================================================================
+  const ELECTION_EVERY = 14;
+  const SIDE_NAME = { tradicion: 'la tradición', progreso: 'el progreso' };
+  const MITIN = {
+    tradicion: ['¡Fiestas como las de antes!', '¡Que no se pierda lo nuestro!', '¡Menos impuestos!', '¡Votad con cabeza!'],
+    progreso: ['¡Escuela y médico para todos!', '¡Un pueblo con futuro!', '¡Obras ya!', '¡Que vuelvan los jóvenes!']
+  };
+  function leaning(v) {   // < 0 tradición, > 0 progreso
+    const W = { religioso: -1, ahorrador: -0.7, gruñón: -0.6, tímido: -0.2, trabajador: 0.3, alegre: 0.4, romántico: 0.5, juerguista: 0.8 };
+    let s = 0; v.traits.forEach(function (t) { s += W[t] || 0; });
+    if (v.age > 60) s -= 0.5; if (v.age < 35) s += 0.4;
+    return clamp(s, -1.5, 1.5);
+  }
+  function prestige(S, v) {
+    let r = 0; S.villagers.forEach(function (o) { if (o !== v) r += getRel(S, v.id, o.id); });
+    return r / Math.max(1, S.villagers.length - 1) + v.money / 80 + (v.age > 40 ? 10 : 0) + (has(v, 'trabajador') ? 8 : 0) + (has(v, 'tímido') ? -10 : 0);
+  }
+  function eligible(S) { return adults(S).filter(function (v) { return ['cura', 'guardia', 'médico'].indexOf(v.job) < 0 && v.age < 80; }); }
+  function sideOf(v) { return leaning(v) < 0 ? 'tradicion' : 'progreso'; }
+  function ensureMayor(S) {
+    if (S.nextElection === undefined) S.nextElection = dayOf(S) + ELECTION_EVERY;
+    if (S.arcas === undefined) S.arcas = 100;
+    if (S.mayor === undefined) {
+      const c = eligible(S).sort(function (a, b) { return prestige(S, b) - prestige(S, a); })[0];
+      S.mayor = c ? c.id : null; S.mayorSide = c ? sideOf(c) : null;
+    }
+  }
+  function electionDay(S, day) {
+    ensureMayor(S);
+    if (!S.campaign && S.nextElection - day <= 3 && S.nextElection >= day) {
+      const pool = eligible(S).sort(function (a, b) { return prestige(S, b) - prestige(S, a); });
+      let a = pool.find(function (v) { return sideOf(v) === 'tradicion'; }), b = pool.find(function (v) { return sideOf(v) === 'progreso'; });
+      if (!a || !b) { a = pool[0]; b = pool[1]; }
+      if (!a || !b) return;
+      S.campaign = { a: a.id, b: b.id, sideA: sideOf(a), sideB: sideOf(b) === sideOf(a) ? (sideOf(a) === 'tradicion' ? 'progreso' : 'tradicion') : sideOf(b), endorsed: null, day: S.nextElection };
+      log(S, 'empieza la campaña: ' + a.name + ', por ' + SIDE_NAME[S.campaign.sideA] + ', contra ' + b.name + ', por ' + SIDE_NAME[S.campaign.sideB] + '. Se vota el día ' + S.nextElection,
+        '🗳️ Campaña: ' + a.name + ' contra ' + b.name, 3, [a.id, b.id]);
+    }
+  }
+  function electionTick(S) {
+    const day = dayOf(S);
+    if (S.nextElection !== day || hourOf(S) < 20 || S.lastElectionDay === day) return;
+    S.lastElectionDay = day;
+    ensureMayor(S);
+    if (!S.campaign) electionDay(S, day);
+    const c = S.campaign; if (!c) { S.nextElection = day + ELECTION_EVERY; return; }
+    const A = byId(S, c.a), B = byId(S, c.b);
+    if (!A || !B) { S.campaign = null; S.nextElection = day + 2; return; }
+    let va = 0, vb = 0;
+    adults(S).forEach(function (v) {
+      if (v === A) { va++; return; } if (v === B) { vb++; return; }
+      const sa = (c.sideA === 'tradicion' ? -1 : 1), sb = -sa, l = leaning(v);
+      let pa = getRel(S, v.id, A.id) / 25 + l * sa + (rnd(S) - 0.5) * 0.8;
+      let pb = getRel(S, v.id, B.id) / 25 + l * sb + (rnd(S) - 0.5) * 0.8;
+      if (c.endorsed === A.id) pa += has(v, 'religioso') ? 1.2 : 0.5;
+      if (c.endorsed === B.id) pb += has(v, 'religioso') ? 1.2 : 0.5;
+      if (S.mayor === A.id) pa += moodScore(v) > 60 ? 0.3 : -0.3;
+      if (S.mayor === B.id) pb += moodScore(v) > 60 ? 0.3 : -0.3;
+      if (pa >= pb) va++; else vb++;
+    });
+    const win = va >= vb ? A : B, lose = win === A ? B : A, side = win === A ? c.sideA : c.sideB, prev = S.mayor;
+    S.mayor = win.id; S.mayorSide = side;
+    S.lastElection = { day: day, a: A.name, b: B.name, va: va, vb: vb, winner: win.name, side: side };
+    S.campaign = null; S.nextElection = day + ELECTION_EVERY;
+    addRel(S, lose.id, win.id, -10);
+    S.fiestaFrom = S.time; S.fiestaUntil = Math.max(S.fiestaUntil, S.time + 150);
+    log(S, (prev === win.id ? win.name + ' repite como ' + g(win, 'alcalde', 'alcaldesa') : '¡' + win.name + ' es ' + g(win, 'el nuevo alcalde', 'la nueva alcaldesa') + '!') + ': ' + Math.max(va, vb) + ' votos contra ' + Math.min(va, vb) + ' de ' + lose.name + '. Gana ' + SIDE_NAME[side] + ', y lo celebran en la plaza',
+      '🏛️ ' + win.name + ' gana las elecciones', 4, [win.id, lose.id], { election: true });
+    milestone(S, '🏛️', win.name + ' gana las elecciones (' + Math.max(va, vb) + ' a ' + Math.min(va, vb) + ') por ' + SIDE_NAME[side]);
+  }
+  function endorse(S, name) {
+    const c = S.campaign;
+    if (!c) return 'Ahora no hay elecciones a la vista. ' + mayorInfo(S);
+    const v = findVillager(S, name);
+    if (!v || (v.id !== c.a && v.id !== c.b)) return 'Solo se presentan ' + byId(S, c.a).name + ' y ' + byId(S, c.b).name + '.';
+    if (c.endorsed) return 'El santo ya ha dado su bendición a ' + byId(S, c.endorsed).name + '.';
+    if (faithOf(S) < 20) return 'Al santo no le queda fe suficiente: bendecir a un candidato cuesta 20.';
+    S.faith -= 20; c.endorsed = v.id;
+    v.needs.social = clamp(v.needs.social - 20, 0, 100);
+    log(S, 'el santo ha bendecido la candidatura de ' + v.name + ', y en la plaza no se habla de otra cosa', '😇 El santo apoya a ' + v.name, 3, [v.id]);
+    return 'Has bendecido a ' + v.name + '. Los devotos lo tendrán muy en cuenta en las urnas.';
+  }
+  function mayorInfo(S) {
+    ensureMayor(S);
+    const m = S.mayor && byId(S, S.mayor);
+    let t = m ? (m.sex === 'f' ? 'La alcaldesa es ' : 'El alcalde es ') + m.name + ', del bando ' + (S.mayorSide === 'progreso' ? 'del progreso' : 'de la tradición') + '.' : 'Ahora mismo el pueblo no tiene alcalde.';
+    if (S.campaign) t += ' Hay elecciones el día ' + S.campaign.day + ': se presentan ' + byId(S, S.campaign.a).name + ' y ' + byId(S, S.campaign.b).name + '.';
+    else t += ' Las próximas elecciones son el día ' + S.nextElection + '.';
+    t += ' En las arcas del ayuntamiento hay ' + euros(S.arcas || 0) + '.';
+    return t;
+  }
+  function townHall(S) {
+    ensureMayor(S);
+    const m = S.mayor && byId(S, S.mayor), c = S.campaign;
+    return {
+      mayor: m ? m.name : null, mayorId: S.mayor, side: S.mayorSide, sideName: S.mayorSide ? SIDE_NAME[S.mayorSide] : null, arcas: Math.round(S.arcas || 0),
+      nextElection: S.nextElection, last: S.lastElection || null,
+      campaign: c ? { a: c.a, b: c.b, aName: byId(S, c.a).name, bName: byId(S, c.b).name, sideA: SIDE_NAME[c.sideA], sideB: SIDE_NAME[c.sideB], endorsed: c.endorsed, day: c.day } : null
+    };
+  }
+
+  // =====================================================================
   // DILEMAS DEL SANTO: casi cada mañana el pueblo pide que decidas algo
   // =====================================================================
   function later(S, text, short, imp) { S.followups.push({ day: dayOf(S) + 1, text: text, short: short, imp: imp || 2 }); }
@@ -1630,6 +1760,11 @@
       ], def: 0 }
   ];
   function dilemmaDef(id) { return DILEMMAS.find(function (d) { return d.id === id; }); }
+  function dilemmaSpeech(S) {
+    const d = S.dilemma;
+    if (!d) return 'Ahora mismo el pueblo no te pide nada. Mañana a las diez, seguramente sí.';
+    return 'El pueblo te pide consejo. ' + d.text + ' ¿' + d.opts[0] + ', o ' + d.opts[1].charAt(0).toLowerCase() + d.opts[1].slice(1) + '? Di: la primera, o la segunda.';
+  }
   function optLabel(S, d, o, ctx) { return typeof o.label === 'function' ? o.label(S, ctx) : o.label; }
   function ctxAlive(S, ctx) { return Object.keys(ctx || {}).every(function (k) { return k === 'b' || byId(S, ctx[k]); }); }
   function newDilemma(S) {
@@ -1809,6 +1944,7 @@
     'ir al cole': 'en la escuela', 'hacer la compra': 'haciendo la compra en la tienda', 'atender la tienda': 'atendiendo la tienda',
     'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra',
     'en casa': 'en casa con la familia', entierro: 'en el entierro',
+    despachar: 'despachando en el ayuntamiento', votar: 'votando en el ayuntamiento', 'dar un mitin': 'dando un mitin en la plaza',
     'ir al médico': 'en el médico', 'pasar consulta': 'pasando consulta', patrullar: 'patrullando el pueblo',
     empadronarse: 'empadronándose en el ayuntamiento', 'hacer papeles': 'haciendo papeles en el ayuntamiento'
   };
@@ -1834,6 +1970,8 @@
       if (m.k === 'herencia' && S.time - m.t < DAY * 10) { const d = (S.deceased || []).find(function (x) { return x.id === m.o; }); if (d) notes.push('Heredó ' + euros(m.a) + ' de ' + d.name); }
     });
     if (S.preg && S.preg.some(function (p) { return p.a === v.id || p.b === v.id; })) notes.unshift('Espera un bebé');
+    if (S.campaign && (S.campaign.a === v.id || S.campaign.b === v.id)) notes.unshift('Se presenta a las elecciones por ' + SIDE_NAME[S.campaign.a === v.id ? S.campaign.sideA : S.campaign.sideB]);
+    if (S.mayor === v.id) notes.unshift(g(v, 'Alcalde', 'Alcaldesa') + ' del pueblo, por ' + SIDE_NAME[S.mayorSide]);
     const partner = v.partner && byId(S, v.partner);
     const parents = (v.parents || []).map(function (id) { const p = byId(S, id); if (p) return p.name; const d = (S.deceased || []).find(function (x) { return x.id === id; }); return d ? d.name + ' †' : null; }).filter(Boolean);
     return {
@@ -1903,6 +2041,7 @@
     if (S.faith === undefined) S.faith = 50;
     S.dilemmaUsed = S.dilemmaUsed || {}; S.followups = S.followups || [];
     assignFamilies(S);   // apellidos y familias para pueblos de antes del ciclo de vida
+    ensureMayor(S);      // pueblos de antes del ayuntamiento: el vecino con más prestigio hace de alcalde
     if (S.map !== MAP_VERSION) {
       // pueblo guardado con el mapa viejo: mismas casas (h0…h11), nuevas posiciones
       S.map = MAP_VERSION; S.homeObra = null;
@@ -1928,6 +2067,9 @@
     homeProgress: homeProgress, occupants: occupants, addressOf: addressOf, streetName: streetName, building: building,
     // fe y dilemas
     POWER_COST: POWER_COST, canAfford: canAfford, faithOf: faithOf, answerDilemma: answerDilemma, DILEMMA_IDS: DILEMMAS.map(function (d) { return d.id; }),
+    dilemmaSpeech: dilemmaSpeech,
+    // ayuntamiento
+    townHall: townHall, mayorInfo: mayorInfo, endorse: endorse,
     isBuilt: isBuilt, buildProgress: buildProgress, townStatus: townStatus, fiestaOn: fiestaOn, moodScore: moodScore, dayOf: dayOf
   };
 });

@@ -18,7 +18,8 @@ const SIM_CACHE_MS = 10 * 60 * 1000;
 
 const POWERS = {
   LluviaIntent: 'lluvia', SolIntent: 'sol', FiestaIntent: 'fiesta', ForasteroIntent: 'forastero',
-  BendecirIntent: 'bendecir', LoteriaIntent: 'loteria'
+  BendecirIntent: 'bendecir', LoteriaIntent: 'loteria',
+  EstrellasIntent: 'estrellas', AparicionIntent: 'aparicion', LangostasIntent: 'langostas'
 };
 const POWER_SPEECH = {
   lluvia: ['¡Que llueva!', 'Vienen nubes cargaditas.', 'Allá va un chaparrón.'],
@@ -26,7 +27,10 @@ const POWER_SPEECH = {
   fiesta: ['¡Que empiecen las fiestas!', '¡Verbena en la plaza!'],
   forastero: ['Alguien viene por el camino…', 'Llega un forastero.'],
   bendecir: ['Cosecha bendecida.', 'Los campos te lo agradecen.'],
-  loteria: ['Rueda el bombo…', '¡Que toque, que toque!']
+  loteria: ['Rueda el bombo…', '¡Que toque, que toque!'],
+  estrellas: ['Esta noche, estrellas fugaces.', 'Que la noche traiga amores.'],
+  aparicion: ['¡Milagro en la plaza!', 'Una luz dorada baja sobre la fuente.'],
+  langostas: ['Que tiemble el campo…', 'Allá va el castigo.']
 };
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -178,6 +182,53 @@ const VecinoHandler = {
   }
 };
 
+// ---------- Dilemas, alcalde y elecciones ----------
+function intentIs(h, names) { return Alexa.getRequestType(h.requestEnvelope) === 'IntentRequest' && names.includes(Alexa.getIntentName(h.requestEnvelope)); }
+async function withWorld(h, fn) {
+  const P = await getSim();
+  const attrs = await loadAttrs(h);
+  const w = loadWorld(P, attrs);
+  const text = fn(P, w.S);
+  storeWorld(P, attrs, w.S);
+  await saveAttrs(h, attrs);
+  return text;
+}
+const OpcionHandler = {
+  canHandle: (h) => intentIs(h, ['OpcionUnoIntent', 'OpcionDosIntent']),
+  async handle(h) {
+    const choice = Alexa.getIntentName(h.requestEnvelope) === 'OpcionDosIntent' ? 1 : 0;
+    if (supportsHTML(h)) return h.responseBuilder.addDirective(htmlMessage({ type: 'dilemma', choice })).getResponse();
+    const text = await withWorld(h, (P, S) => (S.dilemma && P.answerDilemma ? P.answerDilemma(S, choice, false) : 'Ahora mismo el pueblo no te pide nada.'));
+    return h.responseBuilder.speak(text + ' ¿Algo más?').reprompt('¿Algo más?').getResponse();
+  }
+};
+const DilemaHandler = {
+  canHandle: (h) => intentIs(h, ['DilemaIntent']),
+  async handle(h) {
+    if (supportsHTML(h)) return h.responseBuilder.addDirective(htmlMessage({ type: 'readDilemma' })).getResponse();
+    const text = await withWorld(h, (P, S) => (P.dilemmaSpeech ? P.dilemmaSpeech(S) : 'Ahora mismo el pueblo no te pide nada.'));
+    return h.responseBuilder.speak(text).reprompt('¿La primera o la segunda?').getResponse();
+  }
+};
+const AlcaldeHandler = {
+  canHandle: (h) => intentIs(h, ['AlcaldeIntent']),
+  async handle(h) {
+    if (supportsHTML(h)) return h.responseBuilder.addDirective(htmlMessage({ type: 'mayor' })).getResponse();
+    const text = await withWorld(h, (P, S) => (P.mayorInfo ? P.mayorInfo(S) : 'El pueblo todavía no tiene ayuntamiento.'));
+    return h.responseBuilder.speak(text + ' ¿Algo más?').reprompt('¿Algo más?').getResponse();
+  }
+};
+const ApoyarHandler = {
+  canHandle: (h) => intentIs(h, ['ApoyarIntent']),
+  async handle(h) {
+    const name = slot(h, 'vecino');
+    if (!name) return h.responseBuilder.speak('¿A qué candidato quieres bendecir?').reprompt('Dime un nombre.').getResponse();
+    if (supportsHTML(h)) return h.responseBuilder.addDirective(htmlMessage({ type: 'endorse', name })).getResponse();
+    const text = await withWorld(h, (P, S) => (P.endorse ? P.endorse(S, name) : 'Ahora no hay elecciones.'));
+    return h.responseBuilder.speak(text + ' ¿Algo más?').reprompt('¿Algo más?').getResponse();
+  }
+};
+
 const ChronicleHandler = {
   canHandle: (h) => Alexa.getRequestType(h.requestEnvelope) === 'IntentRequest' && Alexa.getIntentName(h.requestEnvelope) === 'CronicaIntent',
   async handle(h) {
@@ -210,7 +261,7 @@ const WebMessageHandler = {
 const HelpHandler = {
   canHandle: (h) => Alexa.getRequestType(h.requestEnvelope) === 'IntentRequest' && Alexa.getIntentName(h.requestEnvelope) === 'AMAZON.HelpIntent',
   handle(h) {
-    const speech = 'Eres el santo patrón del pueblo. Los vecinos viven solos, pero puedes pedir: que llueva, que salga el sol, haz una fiesta, manda un forastero, bendice la cosecha o que toque la lotería. Puedes preguntar cómo está un vecino, por ejemplo: cómo está Paco. Y para las novedades, pregunta qué ha pasado.';
+    const speech = 'Eres el santo patrón del pueblo. Tus poderes gastan fe: puedes pedir que llueva, que salga el sol, haz una fiesta, manda un forastero, bendice la cosecha, que toque la lotería, una lluvia de estrellas o una aparición del santo. Cuando el pueblo te pida consejo, di: la primera, o la segunda. Puedes preguntar cómo está un vecino, quién es el alcalde, o qué ha pasado.';
     const rb = h.responseBuilder.speak(speech);
     return (supportsHTML(h) ? rb : rb.reprompt('¿Qué quieres hacer?')).getResponse();
   }
@@ -244,7 +295,7 @@ const ErrorHandler = {
 };
 
 exports.handler = Alexa.SkillBuilders.custom()
-  .addRequestHandlers(LaunchHandler, PowerHandler, VecinoHandler, ChronicleHandler, WebMessageHandler, HelpHandler, StopHandler, FallbackHandler, SessionEndedHandler)
+  .addRequestHandlers(LaunchHandler, PowerHandler, OpcionHandler, DilemaHandler, AlcaldeHandler, ApoyarHandler, VecinoHandler, ChronicleHandler, WebMessageHandler, HelpHandler, StopHandler, FallbackHandler, SessionEndedHandler)
   .addErrorHandlers(ErrorHandler)
   .withPersistenceAdapter(persistenceAdapter)
   .lambda();
