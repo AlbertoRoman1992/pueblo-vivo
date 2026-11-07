@@ -738,7 +738,8 @@
       if (cam.tx === null || t > (cam.nextAuto || 0)) { autoTarget(); cam.nextAuto = t + 26000; }
     }
     if (cam.tx !== null) { cam.x += (cam.tx - cam.x) * Math.min(1, dt / 900); cam.y += (cam.ty - cam.y) * Math.min(1, dt / 900); if (Math.hypot(cam.tx - cam.x, cam.ty - cam.y) < 1) cam.tx = cam.ty = null; }
-    if (cam.tz) { cam.z += (cam.tz - cam.z) * Math.min(1, dt / 700); fit(); if (Math.abs(cam.tz - cam.z) < .01) cam.tz = null; }
+    if (cam.tz) { cam.z += (cam.tz - cam.z) * Math.min(1, dt / 700); zoomDirty = true; if (Math.abs(cam.tz - cam.z) < .01) cam.tz = null; }
+    if (zoomDirty) { fit(); zoomDirty = false; }
     clampCam();
     left = Math.round(cam.x - VW / 2); top = Math.round(cam.y - VH / 2);
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -1143,7 +1144,10 @@
     pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     const ids = Object.keys(pointers);
     if (ids.length === 1) { dragFrom = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; moved = false; }
-    else if (ids.length === 2) { const a = pointers[ids[0]], b = pointers[ids[1]]; pinchFrom = { d: Math.hypot(a.x - b.x, a.y - b.y), z: cam.z }; moved = true; }
+    else if (ids.length === 2) {
+      const a = pointers[ids[0]], b = pointers[ids[1]], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      pinchFrom = { d: Math.hypot(a.x - b.x, a.y - b.y), z: cam.z, w: screenToWorld(mx, my) }; moved = true;
+    }
     lastInput = performance.now(); cam.tx = cam.ty = null; cam.tz = null;
     try { wrap.setPointerCapture(e.pointerId); } catch (er) { /* nada */ }
   });
@@ -1153,8 +1157,9 @@
     const ids = Object.keys(pointers);
     lastInput = performance.now();
     if (ids.length >= 2 && pinchFrom) {
+      // el punto entre los dedos se queda debajo de los dedos; el lienzo se ajusta en el siguiente fotograma
       const a = pointers[ids[0]], b = pointers[ids[1]];
-      cam.z = clamp(pinchFrom.z * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(10, pinchFrom.d), minZoom(), 2.2); fit();
+      zoomAt(pinchFrom.z * Math.hypot(a.x - b.x, a.y - b.y) / Math.max(10, pinchFrom.d), (a.x + b.x) / 2, (a.y + b.y) / 2, pinchFrom.w);
     } else if (dragFrom) {
       const dx = e.clientX - dragFrom.x, dy = e.clientY - dragFrom.y;
       if (Math.abs(dx) + Math.abs(dy) > 8) { moved = true; wrap.classList.add('drag'); }
@@ -1164,7 +1169,11 @@
   function endPointer(e) {
     if (!pointers[e.pointerId]) return;
     delete pointers[e.pointerId];
-    if (!Object.keys(pointers).length) {
+    const rest = Object.keys(pointers);
+    if (rest.length === 1 && pinchFrom) {   // se levanta un dedo del pellizco: el otro sigue arrastrando sin saltos
+      const p = pointers[rest[0]]; pinchFrom = null; dragFrom = { x: p.x, y: p.y, cx: cam.x, cy: cam.y };
+    }
+    if (!rest.length) {
       if (!moved && dragFrom) tapAt(e.clientX, e.clientY);
       dragFrom = null; pinchFrom = null; wrap.classList.remove('drag');
     }
@@ -1172,12 +1181,16 @@
   wrap.addEventListener('pointerup', endPointer); wrap.addEventListener('pointercancel', endPointer);
   wrap.addEventListener('wheel', function (e) {
     e.preventDefault(); lastInput = performance.now(); cam.tz = null;
-    const before = screenToWorld(e.clientX, e.clientY);
-    cam.z = clamp(cam.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), minZoom(), 2.2); fit();
-    left = cam.x - VW / 2; top = cam.y - VH / 2;
-    const after = screenToWorld(e.clientX, e.clientY);
-    cam.x += before.x - after.x; cam.y += before.y - after.y;
+    zoomAt(cam.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY, screenToWorld(e.clientX, e.clientY));
   }, { passive: false });
+  // Cambia el zoom sin tocar el lienzo todavía (redimensionarlo lo borra y se ve el fondo): render() lo ajusta antes de dibujar
+  let zoomDirty = false;
+  function zoomAt(z, sx, sy, wp) {
+    cam.z = clamp(z, minZoom(), 2.2);
+    const s = baseScale() * cam.z;
+    cam.x = wp.x - (sx - innerWidth / 2) / s; cam.y = wp.y - (sy - innerHeight / 2) / s;
+    zoomDirty = true;
+  }
   function zoomBy(f) { lastInput = performance.now(); cam.tz = clamp(cam.z * f, minZoom(), 2.2); }
   $('z-in').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1.35); });
   $('z-out').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1 / 1.35); });
