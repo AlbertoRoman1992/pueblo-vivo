@@ -54,6 +54,21 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - **Dilemas.** Casi cada mañana a las 10 el pueblo te pide decidir entre dos salidas: iglesia o puente, perdonar un robo o multarlo, orquesta o ahorro, acoger temporeros, una linde en disputa, animar una declaración, una colecta para un negocio en apuros, procesión o pozo en la sequía, un joven que se quiere ir, paellas o vaquilla, campanas al alba. Tienes 13 horas de juego; si no contestas, decide el pueblo. La consecuencia se ve al día siguiente.
 - Por ahora los dilemas se contestan tocando la pantalla; la voz llegará con el paso 3. Si pides un poder por voz sin fe suficiente, Alexa te lo dice.
 
+## Fase 2, paso 3: alcalde y elecciones
+
+- **Alcalde y bandos.** Cada vecino tira hacia **la tradición** (devotos, ahorradores, gruñones, mayores) o hacia **el progreso** (juerguistas, alegres, románticos, jóvenes). Al empezar, el vecino con más prestigio hace de alcalde, y entre semana despacha en el ayuntamiento por la mañana.
+- **Lo que cambia según quién mande.** Con la tradición la contribución es de 4 € a la semana, hay más fe cada día y las obras empiezan por la plaza, el olivar y el molino. Con el progreso la contribución es de 10 €, el pueblo gana más fama, las obras van un 30 % más rápido si hay dinero en las arcas y empiezan por la escuela, el consultorio y la tienda.
+- **Elecciones cada 14 días.** Tres días antes empieza la campaña: un candidato por bando, con mítines en la plaza por la tarde. El día de las elecciones los vecinos van a votar al ayuntamiento, y a las 20:00 se cuentan los votos (cuentan la amistad con cada candidato, el bando de cada uno, si el pueblo está contento con el alcalde y la bendición del santo). Hay cartel de resultados y verbena.
+- **Bendecir a un candidato** cuesta 20 de fe y le da votos, sobre todo entre los devotos.
+- Si el alcalde muere o se va, hay elecciones a los tres días.
+
+### Voz nueva (pasos 2 y 3)
+
+- «Alexa, la primera» / «Alexa, la segunda» contesta el dilema del día; «Alexa, ¿qué me pide el pueblo?» lo lee. En el Echo Show, Alexa lee el dilema en cuanto aparece.
+- «Alexa, lluvia de estrellas», «Alexa, aparécete», «Alexa, plaga de langostas».
+- «Alexa, ¿quién es el alcalde?», «Alexa, ¿cuándo son las elecciones?», «Alexa, apoya a Carmen».
+- Todo funciona también en un Echo sin pantalla.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
