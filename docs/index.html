@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
-<script src="sim.js?v=6"></script>
+<script src="sim.js?v=7"></script>
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,6 +54,12 @@
   #dilemma .opts button + button { background: #b9d7f5; }
   #dilemma .opts button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
   #dilemma .later { font: inherit; font-size: .7em; background: none; border: 0; color: var(--ink); opacity: .7; margin-top: .4em; cursor: pointer; text-decoration: underline; }
+  #election { left: 1.4vmin; bottom: calc(1.6vmin + 4.2em); display: none; font-size: clamp(11px, 2.4vmin, 22px); max-width: 44vw; }
+  #election.on { display: block; }
+  #election .et { font-weight: 700; }
+  #election .eb { display: flex; gap: .4em; margin-top: .3em; }
+  #election .eb button { flex: 1; font: inherit; font-size: .9em; color: var(--ink); background: var(--paper-2); border: 2px solid var(--ink); border-radius: 10px; padding: .2em .4em; cursor: pointer; }
+  #election .eb button small { opacity: .75; }
   #dilemma-pill { left: 50%; transform: translateX(-50%); top: 10vmin; display: none; cursor: pointer; font-size: clamp(12px, 2.6vmin, 24px); background: var(--gold); animation: pulse 1.6s ease-in-out infinite; }
   #town.pulse { animation: pulse 1.2s ease-in-out 3; }
   @keyframes pulse { 50% { transform: scale(1.06); box-shadow: 0 0 0 6px rgba(232,181,74,.6), 0 4px 0 rgba(0,0,0,.35); } }
@@ -145,6 +151,7 @@
     <div class="bar"><i id="t-bar"></i></div>
     <div class="tstats"><span>👥 <b id="t-pop">21</b></span><span>😊 <b id="t-happy">70</b>%</span><span>🌾 <b id="t-harv">55</b>%</span></div>
     <div class="tfaith" title="Fe: la gastan tus poderes y sube con misas, fiestas y vecinos contentos">🙏 <span class="bar faith"><i id="t-faith"></i></span><b id="t-faith-n">50</b></div>
+    <div class="tnext" id="t-mayor"></div>
     <div class="tnext" id="t-next"></div>
   </div>
   <div id="zoom"><button id="z-in" title="Acercar">＋</button><button id="z-out" title="Alejar">－</button><button id="z-home" title="Volver a la plaza">⌂</button></div>
@@ -167,6 +174,7 @@
     <button data-p="aparicion"><span class="ic">😇</span><span><b>Aparición del santo</b><br><small>Todo el pueblo, feliz</small></span><span class="cost"></span></button>
     <button data-p="langostas"><span class="ic">🦗</span><span><b>Plaga de langostas</b><br><small>Castigo: arrasa la cosecha, llena la iglesia</small></span><span class="cost"></span></button>
   </div>
+  <div id="election" class="pill"></div>
   <div id="dilemma" class="pill"></div>
   <div id="dilemma-pill" class="pill">📜 El pueblo te pide consejo · tócame</div>
   <div id="card" class="pill"></div>
@@ -1018,9 +1026,11 @@
       b.classList.toggle('poor', fe < c);
     });
     showDilemma();
+    showElection();
     S.events.slice(-12).forEach(function (e) {
       if (seen.has(e)) return; seen.add(e);
       news.push(e.short);
+      if (e.election && S.lastElection) { const L = S.lastElection; banner('🗳️ Elecciones municipales', '¡' + L.winner + ' gana!', 0, Math.max(L.va, L.vb) + ' votos contra ' + Math.min(L.va, L.vb) + ' · gana ' + (L.side === 'progreso' ? 'el progreso' : 'la tradición'), 7000); fireworksUntil = performance.now() + 5000; }
       if (e.levelUp) celebrateLevel(e.levelUp, false);
       else if (e.build) celebrateBuild(e.build);
       else if (e.house) { const b = P.building(e.house); if (b) { sparkle(b.x + b.pw / 2, b.y + b.ph / 2, 30, ['#ffd34d', '#fff3a0', '#e98ab0']); if (performance.now() - lastInput > 20000) focus(b.x + b.pw / 2, b.y + b.ph / 2); } }
@@ -1158,6 +1168,14 @@
         '<div class="stat"><b>' + st.kids + '</b><span>críos</span></div>' +
         '<div class="stat"><b>👶 ' + st.stats.births + ' · ✝️ ' + st.stats.deaths + '</b><span>nacidos y fallecidos</span></div>' +
         '<div class="stat"><b>' + st.wealth.toLocaleString('es-ES') + ' €</b><span>en los bolsillos</span></div></div>';
+      const th = P.townHall(S);
+      h += '<h3>Ayuntamiento</h3><div class="grid-stats">' +
+        '<div class="stat"><b>🏛️ ' + esc(th.mayor || '—') + '</b><span>' + (th.side ? 'por ' + th.sideName : 'sin alcalde') + '</span></div>' +
+        '<div class="stat"><b>' + th.arcas.toLocaleString('es-ES') + ' €</b><span>en las arcas</span></div>' +
+        '<div class="stat"><b>Día ' + th.nextElection + '</b><span>próximas elecciones</span></div></div>';
+      if (th.campaign) h += '<p style="font-size:.85em;margin-top:.4em">🗳️ En campaña: <b>' + esc(th.campaign.aName) + '</b> (' + th.campaign.sideA + ') contra <b>' + esc(th.campaign.bName) + '</b> (' + th.campaign.sideB + ').</p>';
+      if (th.last) h += '<p style="font-size:.85em;margin-top:.2em">Últimas elecciones (día ' + th.last.day + '): ganó ' + esc(th.last.winner) + ', ' + Math.max(th.last.va, th.last.vb) + ' a ' + Math.min(th.last.va, th.last.vb) + '.</p>';
+      h += '<p class="empty" style="font-size:.78em">Con la tradición: menos impuestos y más fe cada día; primero la plaza, el olivar y el molino. Con el progreso: más impuestos, más fama y obras más rápidas; primero la escuela, el consultorio y la tienda.</p>';
       h += '<h3>Obras del pueblo</h3>';
       const lbl = { hecho: '✅ Hecho', obras: '🚧 En obras', pendiente: '⏳ Próximamente', bloqueado: '🔒 ' };
       st.projects.forEach(function (p) {
@@ -1272,10 +1290,28 @@
   $('z-in').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1.35); });
   $('z-out').addEventListener('click', function (e) { e.stopPropagation(); zoomBy(1 / 1.35); });
   $('z-home').addEventListener('click', function (e) { e.stopPropagation(); lastInput = performance.now(); cam.tz = 1; focus((P.PLAZA.c + P.PLAZA.w / 2) * T, (P.PLAZA.r + P.PLAZA.h / 2) * T); });
-  ['zoom', 'card', 'toast', 'ticker', 'clock', 'hint', 'dock', 'town', 'miracles', 'dilemma', 'dilemma-pill'].forEach(function (id) { $(id).addEventListener('pointerdown', function (e) { e.stopPropagation(); }); });
+  ['zoom', 'card', 'toast', 'ticker', 'clock', 'hint', 'dock', 'town', 'miracles', 'dilemma', 'dilemma-pill', 'election'].forEach(function (id) { $(id).addEventListener('pointerdown', function (e) { e.stopPropagation(); }); });
+
+  // ---------- Elecciones ----------
+  let electionKey = '';
+  function showElection() {
+    const th = P.townHall(S), el = $('election');
+    $('t-mayor').textContent = th.mayor ? '🏛️ ' + (th.mayor) + ' · ' + (th.side === 'progreso' ? 'progreso' : 'tradición') + (th.campaign ? ' · 🗳️ día ' + th.campaign.day : '') : '🏛️ Sin alcalde';
+    const c = th.campaign;
+    if (!c) { el.classList.remove('on'); electionKey = ''; return; }
+    const key = c.a + c.b + (c.endorsed || '') + Math.floor(P.faithOf(S) >= 20);
+    if (key === electionKey) return;
+    electionKey = key;
+    let h = '<div class="et">🗳️ Elecciones el día ' + c.day + '</div><div>' + esc(c.aName) + ' (' + c.sideA + ') contra ' + esc(c.bName) + ' (' + c.sideB + ')</div>';
+    if (c.endorsed) h += '<div style="margin-top:.2em">😇 Has bendecido a ' + esc(c.endorsed === c.a ? c.aName : c.bName) + '.</div>';
+    else h += '<div class="eb"><button data-n="' + esc(c.aName) + '">😇 Bendecir a ' + esc(c.aName) + '<br><small>20 de fe</small></button><button data-n="' + esc(c.bName) + '">😇 Bendecir a ' + esc(c.bName) + '<br><small>20 de fe</small></button></div>';
+    el.innerHTML = h; el.classList.add('on');
+    el.querySelectorAll('button[data-n]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); toast(P.endorse(S, b.dataset.n), 5000); electionKey = ''; updateHUD(); save(true); }); });
+  }
 
   // ---------- Dilemas ----------
   let dilemmaHidden = null, dilemmaShown = null;
+  const spokenDilemmas = {};
   function showDilemma() {
     const d = S.dilemma, box = $('dilemma'), pill = $('dilemma-pill');
     if (!d) { box.classList.remove('on'); pill.style.display = 'none'; dilemmaShown = null; return; }
@@ -1291,6 +1327,7 @@
       box.querySelectorAll('.opts button').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); answer(Number(b.dataset.i)); }); });
       $('dl-later').addEventListener('click', function (e) { e.stopPropagation(); dilemmaHidden = key; showDilemma(); });
       box.classList.add('on');
+      if (alexa && !spokenDilemmas[key]) { spokenDilemmas[key] = 1; speak(P.dilemmaSpeech(S)); }
       if (performance.now() - lastInput > 20000) focus((P.PLAZA.c + P.PLAZA.w / 2) * T, (P.PLAZA.r + P.PLAZA.h / 2) * T);
     }
     const l = $('dl-left'); if (l) l.textContent = left >= 1 ? 'quedan ' + left + ' h' : 'última hora';
@@ -1385,6 +1422,17 @@
     } else if (msg.type === 'requestChronicle') {
       speak(P.chronicle(S, Math.max(0, S.time - P.DAY)));
       openBook('cronica', 40000);
+    } else if (msg.type === 'dilemma') {
+      if (!S.dilemma) { speak(P.dilemmaSpeech(S)); return; }
+      const res = P.answerDilemma(S, msg.choice === 1 ? 1 : 0, false);
+      dilemmaShown = null; showDilemma(); updateHUD(); save(true);
+      if (res) { toast('📜 ' + res, 6000); speak(res); }
+    } else if (msg.type === 'readDilemma') {
+      dilemmaHidden = null; dilemmaShown = null; showDilemma(); speak(P.dilemmaSpeech(S));
+    } else if (msg.type === 'mayor') {
+      openBook('pueblo', 25000); speak(P.mayorInfo(S));
+    } else if (msg.type === 'endorse') {
+      const r = P.endorse(S, msg.name || ''); toast(r, 5000); speak(r); electionKey = ''; updateHUD(); save(true);
     } else if (msg.type === 'ask') {
       const v = P.findVillager(S, msg.name);
       closeBook();
