@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
-<script src="sim.js?v=8"></script>
+<script src="sim.js?v=9"></script>
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -859,6 +859,7 @@
       }
     }
     if (P.isMarket(S)) drawStalls();
+    drawEvents(t, dt, h);
     const Fo = P.FOUNTAIN, fx = (Fo.c + 1) * T, fy = (Fo.r + 1) * T;
     for (let i = 0; i < 4; i++) { const a = t / 600 + i * 1.6; rect(g, fx + Math.cos(a) * 4, fy + Math.sin(a) * 3, 1, 1, '#bfe3f5'); }
     if (!P.isBuilt(S, 'plaza')) rect(g, fx, fy - 9 - (Math.floor(t / 200) % 2), 1, 2, '#bfe3f5');
@@ -978,6 +979,100 @@
       g.setTransform(1, 0, 0, 1, 0, 0);
     }
     drawUI();
+  }
+  // ---------- Lo que se ve en el pueblo: campaña, elecciones, fiestas y procesión ----------
+  const SIDE_COL = { tradicion: '#4f7a36', progreso: '#e07b39' };
+  function tinyPerson(x, y, shirt, t, k) {
+    const b = Math.floor(t / 250 + k) % 2;
+    rect(g, x - 1, y - 7 - b, 3, 3, '#f0c29a'); rect(g, x - 2, y - 4 - b, 5, 4, shirt); rect(g, x - 1, y, 1, 1, '#2a2018'); rect(g, x + 1, y, 1, 1, '#2a2018');
+  }
+  function drawEvents(t, dt, h) {
+    const Q = P.PLAZA, day = P.dayOf(S), c = S.campaign;
+    // campaña: carteles en las fachadas y tarima en la plaza
+    if (c) {
+      P.HOMES.forEach(function (b) {
+        if (S.houses[b.id] === undefined || !inView(b.x + b.pw / 2, b.y + b.ph, 20)) return;
+        const hs = hash(b.id + 'cartel'); if (hs % 3) return;
+        const col = SIDE_COL[(hs >>> 3) % 2 ? c.sideA : c.sideB] || '#4f7a36';
+        const px = b.x + 3 + ((hs >>> 5) % Math.max(1, b.pw - 10)), py = b.y + b.ph - 13;
+        rect(g, px, py, 6, 7, '#f6ead2'); rect(g, px, py, 6, 2, col); rect(g, px + 2, py + 3, 2, 2, '#f0c29a'); rect(g, px + 1, py + 5, 4, 1, col);
+      });
+      const A = P.building('ayuntamiento');
+      [[A.x + 4, A.y + 30], [A.x + A.pw - 10, A.y + 30]].forEach(function (p, i) { const col = SIDE_COL[i ? c.sideB : c.sideA]; rect(g, p[0], p[1], 6, 7, '#f6ead2'); rect(g, p[0], p[1], 6, 2, col); rect(g, p[0] + 2, p[1] + 3, 2, 2, '#f0c29a'); });
+      if (h >= 17.5 && h < 20.2) {
+        const sx = (Q.c + 3) * T + T / 2, sy = (Q.r + 2) * T + T / 2 + 3, sp = [P.byId(S, c.a), P.byId(S, c.b)].find(function (o) { return o && o.act === 'dar un mitin'; });
+        const col = sp ? SIDE_COL[sp.id === c.a ? c.sideA : c.sideB] : '#8a6a43';
+        rect(g, sx - 12, sy - 2, 24, 5, '#8a5a32'); rect(g, sx - 12, sy - 2, 24, 1, '#a0784a'); rect(g, sx - 11, sy + 3, 2, 2, '#5b3b22'); rect(g, sx + 9, sy + 3, 2, 2, '#5b3b22');
+        rect(g, sx - 12, sy - 22, 1, 20, '#5b3b22'); rect(g, sx + 11, sy - 22, 1, 20, '#5b3b22'); rect(g, sx - 12, sy - 23, 24, 5, col); rect(g, sx - 8, sy - 21, 16, 1, '#f6ead2');
+        rect(g, sx + 5, sy - 10, 1, 8, '#2b2b33'); rect(g, sx + 4, sy - 11, 3, 2, '#2b2b33');
+      }
+    }
+    // día de elecciones: urna en la puerta del ayuntamiento
+    if (S.nextElection === day && h >= 9 && h < 20.5) {
+      const A = P.building('ayuntamiento'), x = A.doorPx.x - 2, y = A.doorPx.y - 6;
+      rect(g, x - 4, y + 2, 12, 2, '#8a5a32'); rect(g, x - 3, y + 4, 1, 4, '#5b3b22'); rect(g, x + 6, y + 4, 1, 4, '#5b3b22');
+      rect(g, x - 1, y - 5, 7, 7, '#e8f0f4'); rect(g, x - 1, y - 5, 7, 1, '#ffffff'); rect(g, x + 1, y - 4, 3, 1, '#2b2b33');
+      if (Math.floor(t / 600) % 2) { rect(g, x + 2, y - 9, 2, 3, '#f6ead2'); }
+    }
+    // fiestas: cada una se ve distinta
+    if (P.fiestaOn(S)) {
+      const kind = S.fiestaKind || 'verbena';
+      if (kind === 'orquesta' || kind === 'verbena') {
+        const x = (Q.c + Q.w - 7) * T, y = (Q.r + 1) * T + 4, n = kind === 'orquesta' ? 3 : 2;
+        rect(g, x, y, 44, 12, '#8a5a32'); rect(g, x, y, 44, 2, '#a0784a'); rect(g, x, y + 12, 44, 1, 'rgba(0,0,0,.25)');
+        if (kind === 'orquesta') { rect(g, x - 1, y - 18, 2, 18, '#5b3b22'); rect(g, x + 43, y - 18, 2, 18, '#5b3b22'); for (let i = 0; i < 46; i += 4) rect(g, x - 1 + i, y - 19, 2, 2, ['#e84a4a', '#ffd34d', '#4aa3e8'][i / 4 % 3]); }
+        rect(g, x + 1, y - 7, 5, 7, '#1d1d24'); rect(g, x + 38, y - 7, 5, 7, '#1d1d24'); rect(g, x + 2, y - 5, 3, 3, '#4a4a55'); rect(g, x + 39, y - 5, 3, 3, '#4a4a55');
+        const shirts = ['#c0392b', '#2f5f8a', '#f6ead2'];
+        for (let i = 0; i < n; i++) {
+          const mx = x + 12 + i * 10, my = y + 6;
+          tinyPerson(mx, my, shirts[i], t, i);
+          if (i === 0) rect(g, mx + 2, my - 4, 3, 2, '#c9a040');          // trompeta
+          else if (i === 1) { rect(g, mx - 3, my - 3, 6, 3, '#e8e2d0'); rect(g, mx - 3, my - 3, 6, 1, '#7a4f2a'); }   // tambor
+          else rect(g, mx - 3, my - 4, 2, 4, '#7a4f2a');                  // guitarra
+        }
+        if (Math.floor(t / 400) % 3 === 0) note(g, x + 20 + Math.sin(t / 300) * 8, y - 14 - (t / 50) % 10);
+      } else if (kind === 'paellas') {
+        for (let k = 0; k < 3; k++) {
+          const px = (Q.c + 3 + k * 3) * T + 4, py = (Q.r + 6) * T;
+          const fl = Math.floor(t / 150 + k) % 2;
+          rect(g, px - 2, py + 3, 1, 3, '#2b2b33'); rect(g, px + 2, py + 3, 1, 3, '#2b2b33');
+          rect(g, px - 2, py + 5, 5, 1, fl ? '#ff8a2a' : '#ffd34d'); rect(g, px - 1, py + 4, 3, 1, fl ? '#ffd34d' : '#ff8a2a');
+          g.fillStyle = '#4a4a55'; g.beginPath(); g.ellipse(px, py, 8, 3.5, 0, 0, 7); g.fill();
+          g.fillStyle = '#e8b54a'; g.beginPath(); g.ellipse(px, py, 7, 2.8, 0, 0, 7); g.fill();
+          [[-4, 0, '#c0392b'], [2, -1, '#5ec46a'], [4, 1, '#f6ead2'], [-1, 1, '#c0392b']].forEach(function (d) { rect(g, px + d[0], py + d[1], 1, 1, d[2]); });
+          if (Math.random() < dt / 300) puff(px + (Math.random() - .5) * 6, py - 3);
+        }
+        const ty = (Q.r + 3) * T;
+        [Q.c + 2, Q.c + Q.w - 6].forEach(function (cx) { rect(g, cx * T, ty, 30, 4, '#f6ead2'); rect(g, cx * T, ty + 4, 30, 1, '#c9b48a'); rect(g, cx * T + 1, ty + 5, 1, 3, '#5b3b22'); rect(g, cx * T + 28, ty + 5, 1, 3, '#5b3b22'); });
+      } else if (kind === 'vaquilla') {
+        const x0 = Q.c * T + 4, x1 = (Q.c + Q.w) * T - 4, y0 = Q.r * T + 4, y1 = (Q.r + Q.h) * T - 6;
+        for (let x = x0; x < x1; x += 6) { rect(g, x, y0, 4, 1, '#8a5a32'); rect(g, x, y0 + 3, 4, 1, '#8a5a32'); rect(g, x, y1, 4, 1, '#8a5a32'); rect(g, x, y1 + 3, 4, 1, '#8a5a32'); }
+        for (let x = x0; x < x1; x += 6) { rect(g, x, y0, 1, 5, '#5b3b22'); rect(g, x, y1, 1, 5, '#5b3b22'); }
+        const a = t / 1400, cx = (P.FOUNTAIN.c + 1) * T + Math.cos(a) * 34, cy = (P.FOUNTAIN.r + 1) * T + Math.sin(a) * 14, dir = -Math.sin(a) > 0 ? 1 : -1;
+        const leg = Math.floor(t / 120) % 2;
+        rect(g, cx - 4, cy + 3, 9, 2, 'rgba(0,0,0,.2)');
+        rect(g, cx - 4, cy - 4, 9, 5, '#3a2a20'); rect(g, cx + (dir > 0 ? 4 : -7), cy - 6, 4, 4, '#3a2a20');
+        rect(g, cx + (dir > 0 ? 5 : -8), cy - 8, 1, 2, '#f4f1ea'); rect(g, cx + (dir > 0 ? 7 : -6), cy - 8, 1, 2, '#f4f1ea');
+        rect(g, cx - 3, cy + 1, 1, 2 + leg, '#2a1a14'); rect(g, cx + 3, cy + 1, 1, 3 - leg, '#2a1a14');
+      } else if (kind === 'boda') {
+        const I = P.building('iglesia'), x = I.doorPx.x, y = I.doorPx.y - 2;
+        for (let i = 0; i < 9; i++) { const a = Math.PI * i / 8, px = x + Math.cos(a) * 9, py = y - 10 - Math.sin(a) * 9; rect(g, px - 1, py - 1, 3, 3, ['#ffffff', '#e98ab0', '#ffd34d'][i % 3]); }
+        rect(g, x - 10, y - 10, 1, 10, '#5f7f44'); rect(g, x + 9, y - 10, 1, 10, '#5f7f44');
+        if (Math.random() < dt / 200) sparkle(x, y - 6, 3, ['#ffffff', '#f6ead2']);
+      }
+    }
+    // procesión: el paso del santo da vueltas a la plaza
+    if (S.procession && S.time >= S.procession.from && S.time < S.procession.until) {
+      const per = (Q.w + Q.h) * 2, f = ((S.time - S.procession.from) / 25) % per;
+      let px, py; const L = function (u) { return u; };
+      if (f < Q.w) { px = Q.c + f; py = Q.r + 1; } else if (f < Q.w + Q.h) { px = Q.c + Q.w - 1; py = Q.r + 1 + (f - Q.w); } else if (f < 2 * Q.w + Q.h) { px = Q.c + Q.w - 1 - (f - Q.w - Q.h); py = Q.r + Q.h - 1; } else { px = Q.c; py = Q.r + Q.h - 1 - (f - 2 * Q.w - Q.h); }
+      px = px * T + T / 2; py = py * T + T / 2; L(0);
+      rect(g, px - 7, py + 1, 14, 3, '#7a4f2a'); rect(g, px - 7, py + 1, 14, 1, '#c9a040');
+      rect(g, px - 2, py - 9, 5, 10, '#f4f1ea'); rect(g, px - 2, py - 9, 5, 3, '#4a7fc0'); rect(g, px - 1, py - 12, 3, 3, '#f0c29a');
+      g.strokeStyle = '#ffd34d'; g.lineWidth = 1; g.beginPath(); g.ellipse(px, py - 13, 3, 1, 0, 0, 7); g.stroke();
+      rect(g, px - 6, py - 4, 1, 5, '#f6ead2'); rect(g, px + 5, py - 4, 1, 5, '#f6ead2');
+      if (Math.floor(t / 200) % 2) { rect(g, px - 6, py - 6, 1, 2, '#ffd34d'); rect(g, px + 5, py - 6, 1, 2, '#ffd34d'); }
+    }
   }
   // Hacia dónde mira la cámara cuando nadie la toca: lo último interesante que ha pasado, o la plaza
   function autoTarget() {
@@ -1134,6 +1229,7 @@
       (s.kids.length ? '<div class="row">👶 ' + (s.kids.length === 1 ? 'Su crío: ' : 'Sus críos: ') + esc(s.kids.join(', ')) + '</div>' : '') +
       (s.friend ? '<div class="row">🤝 Mejor amistad: ' + esc(s.friend) + '</div>' : '') +
       (s.enemy ? '<div class="row">😤 No traga a: ' + esc(s.enemy) + '</div>' : '') +
+      (v.age >= 18 && P.leaningOf ? (function () { const L = P.leaningOf(S, v); return '<div class="row">🗳️ ' + (L.firm ? 'Vota ' + (L.side === 'progreso' ? 'al progreso' : 'a la tradición') : 'Indeciso, tira hacia ' + (L.side === 'progreso' ? 'el progreso' : 'la tradición')) + '</div>'; })() : '') +
       s.notes.map(function (n) { return '<div class="note">· ' + esc(n) + '</div>'; }).join('') +
       '<div>' + s.traits.map(function (t) { return '<span class="tag">' + t + '</span>'; }).join('') + '</div>';
     if (refresh && cardFor === id && el.dataset.h === html) return;
@@ -1149,13 +1245,40 @@
     panaderia: ['🥖', 'El pan de cada mañana, recién salido del horno de leña.'],
     tienda: ['🛒', 'Ultramarinos: de todo un poco, y las noticias gratis.'],
     escuela: ['🏫', 'Los críos van entre semana por la mañana.'],
-    consultorio: ['🩺', 'Los mayores pasan revisión cada semana y viven más años.'],
+    consultorio: ['⚕️', 'Los mayores pasan revisión cada semana y viven más años.'],
     cuartel: ['🚔', 'Con la Guardia Civil hay menos broncas en el pueblo.'],
     quiosco: ['📰', 'Prensa del día para los madrugadores.'],
     casa: ['🏠', '']
   };
+  // Zonas que no son edificios pero se pueden tocar: molino, olivar, viñedo, cementerio, era y campos
+  const ZONES = (function () {
+    const z = function (id, R, title, icon) { return { id: id, zone: true, type: id, title: title, icon: icon, x: R.c * T, y: R.r * T, pw: R.w * T, ph: R.h * T, dc: R.c, dr: R.r + R.h }; };
+    return [z('molino', P.MILL, 'El molino', '🌬️'), z('olivar', P.OLIVE, 'El olivar', '🌿'), z('vina', P.VINE, 'El viñedo', '🍇'), z('cementerio', P.CEMETERY, 'El cementerio', '✝️'), z('era', P.ERA, 'La era', '🌾')]
+      .concat(P.FIELDS.map(function (F, i) { return z('campo' + i, F, i === 1 ? 'La huerta' : 'Los campos de cereal', '🌾'); }));
+  })();
+  function zoneInfo(b) {
+    const e = P.economy(S), G = e.goods, row = function (t) { return '<div class="row">' + t + '</div>'; };
+    if (b.id === 'molino') {
+      if (!P.isBuilt(S, 'molino')) return row(P.buildProgress(S, 'molino') > 0 ? '🚧 Lo están restaurando (' + Math.round(P.buildProgress(S, 'molino') * 100) + ' %).' : '🏚️ Está en ruinas. Se restaurará cuando el pueblo sea una villa.') + row('Sin molino, el trigo se vende fuera barato y el pan se hace con harina de fuera.');
+      return row('Muele hasta 40 kg de trigo al día.') + row('🌾 Trigo esperando: ' + G.trigo + ' kg · Harina: ' + G.harina + ' kg') + row('🥖 Ya van ' + e.breadLocal + ' hogazas con harina del pueblo.') + row('Lo que sobra se vende fuera y va a las arcas.');
+    }
+    if (b.id === 'olivar' || b.id === 'vina') {
+      const isO = b.id === 'olivar', built = P.isBuilt(S, b.id), p = P.buildProgress(S, b.id);
+      if (!built) return row(p > 0 ? '🚧 Lo están plantando (' + Math.round(p * 100) + ' %).' : '🔒 Se plantará cuando el pueblo sea un pueblo con encanto.');
+      const has = e.shops.some(function (s) { return s.type === (isO ? 'almazara' : 'bodega'); });
+      return row((isO ? '🌿 Aceituna: ' + G.aceituna + ' kg' : '🍇 Uva: ' + G.uva + ' kg') + ' (se recoge más con buena cosecha)') +
+        row(has ? (isO ? '🛢️ La almazara la convierte en aceite (' + G.aceite + ' l en bodega).' : '🍷 La bodega la convierte en vino (' + G.vino + ' l).') : '⏳ Nadie ha abierto todavía ' + (isO ? 'una almazara' : 'una bodega') + ': lo que sobra se vende fuera.');
+    }
+    if (b.id === 'cementerio') {
+      const d = S.deceased || [];
+      return row(d.length ? '✝️ ' + d.length + (d.length === 1 ? ' tumba' : ' tumbas') + '. La última, ' + esc(d[d.length - 1].name + ' ' + (d[d.length - 1].sur || '')) + ' (día ' + d[d.length - 1].d + ').' : 'Todavía no hay nadie enterrado en el cementerio nuevo.') + row('Cipreses, flores frescas y mucho silencio.');
+    }
+    if (b.id === 'era') return row('Aquí se trillaba el cereal antiguamente. Ahora es el mejor mirador del pueblo.');
+    const work = S.villagers.filter(function (v) { return v.act === 'trabajar' && v.actPlace === 'campo'; }).map(function (v) { return v.name; });
+    return row('🌾 Cosecha: ' + Math.round(S.harvest) + ' %' + (S.time < S.blessUntil ? ' · bendecida ✨' : '')) + row(work.length ? '👩‍🌾 Trabajando ahora: ' + esc(work.join(', ')) : 'Ahora no hay nadie trabajando.') + row('Da trigo para el molino; lo demás se vende en el mercado de los sábados.');
+  }
   function showBuilding(b, refresh) {
-    const el = $('card'), info = BUILDING_INFO[b.type] || ['🏠', ''];
+    const el = $('card'), info = b.zone ? [b.icon, ''] : BUILDING_INFO[b.type] || ['🏠', ''];
     const inside = S.villagers.filter(function (v) { return v.inside === b.id; }).map(function (v) { return v.name; });
     let title, sub, extra = '';
     if (b.type === 'casa') {
@@ -1171,6 +1294,15 @@
       title = (b.name || b.type).charAt(0).toUpperCase() + (b.name || b.type).slice(1);
       sub = P.streetName(b.dc, b.dr).replace(/^la /, '').replace(/^las /, '');
       extra = built ? '<div class="row">' + esc(info[1]) + '</div>' : '<div class="row">🚧 Todavía es un solar: se construirá cuando el pueblo crezca.</div>';
+      if (b.zone) { title = b.title; sub = b.sub || sub; extra = zoneInfo(b); }
+      const fx = built && P.economy(S).fixed.find(function (f) { return f.id === b.id; });
+      if (fx) {
+        extra += '<div class="row">👤 ' + esc(b.id === 'tienda' ? 'Lo lleva ' : 'Dueño: ') + esc(fx.owner) + (fx.workers.length ? ' · trabajan ' + esc(fx.workers.join(', ')) : '') + '</div>' +
+          '<div class="row">💶 ' + fx.price.toFixed(2).replace('.', ',') + ' € ' + (b.id === 'bar' ? 'la caña' : b.id === 'panaderia' ? 'el pan' : 'la compra') + ' · ' + fx.sales + ' ventas</div>' +
+          (b.id === 'panaderia' ? '<div class="row">🌾 ' + (fx.local ? fx.local + ' hogazas con harina del molino del pueblo' : 'Compra la harina fuera: el molino no está restaurado') + '</div>' : '') +
+          (fx.rival ? '<div class="row">🍻 La taberna le está quitando clientela</div>' : '') +
+          '<div class="row">' + (fx.state === 'apuros' ? '⚠️ Pasa apuros' : fx.state === 'va muy bien' ? '📈 Va muy bien' : '➖ Va tirando') + '</div>';
+      }
     }
     let icon = info[0];
     if (b.type === 'casa') {
@@ -1234,8 +1366,9 @@
       h += '<h3>Cadenas de producción</h3>';
       const chain = function (ic, steps) { return '<div class="proj"><span class="pic">' + ic + '</span><span class="pname">' + steps.map(function (s) { return '<span style="opacity:' + (s[1] ? 1 : .45) + '">' + s[0] + '</span>'; }).join(' → ') + '</span></div>'; };
       const has = function (t) { return e.shops.some(function (s) { return s.type === t; }); };
-      h += chain('🌾', [['Trigo ' + G.trigo + ' kg', true], ['Molino' + (e.molino ? '' : ' (sin restaurar)'), e.molino], ['Harina ' + G.harina + ' kg', e.molino], ['Pan (' + e.breadLocal + ' hogazas con harina del pueblo)', e.breadLocal > 0]]);
-      h += chain('🫒', [['Olivar' + (e.olivar ? '' : ' (sin plantar)'), e.olivar], ['Aceituna ' + G.aceituna + ' kg', e.olivar], ['Almazara' + (has('almazara') ? '' : ' (nadie la ha abierto)'), has('almazara')], ['Aceite', has('almazara')]]);
+      const bakery = e.fixed.find(function (f) { return f.id === 'panaderia'; });
+      h += chain('🌾', [['Campos de cereal', true], ['Trigo ' + G.trigo + ' kg', true], ['Molino' + (e.molino ? '' : ' (sin restaurar)'), e.molino], ['Harina ' + G.harina + ' kg', e.molino], ['Panadería' + (bakery ? ' de ' + bakery.owner : ''), true], ['Pan (' + e.breadLocal + ' hogazas con harina del pueblo)', e.breadLocal > 0]]);
+      h += chain('🌿', [['Olivar' + (e.olivar ? '' : ' (sin plantar)'), e.olivar], ['Aceituna ' + G.aceituna + ' kg', e.olivar], ['Almazara' + (has('almazara') ? '' : ' (nadie la ha abierto)'), has('almazara')], ['Aceite', has('almazara')]]);
       h += chain('🍇', [['Viñedo' + (e.vina ? '' : ' (sin plantar)'), e.vina], ['Uva ' + G.uva + ' kg', e.vina], ['Bodega' + (has('bodega') ? '' : ' (nadie la ha abierto)'), has('bodega')], ['Vino ' + G.vino + ' l', has('bodega')]]);
       h += chain('🐐', [['Granja de cabras' + (has('granja') ? '' : ' (nadie la ha abierto)'), has('granja')], ['Queso', has('granja')]]);
       h += '<h3>Negocios de los vecinos</h3>';
@@ -1284,7 +1417,8 @@
     let best = null, bd = 12 + 6 / cam.z;
     S.villagers.forEach(function (v) { if (v.inside) return; const d = Math.hypot(v.x - p.x, v.y - 7 - p.y); if (d < bd) { bd = d; best = v; } });
     if (best) { selected = best.id; selectedB = null; showCard(best.id); return; }
-    const b = P.BUILDINGS.slice().reverse().find(function (b) { return p.x >= b.x && p.x < b.x + b.pw && p.y >= b.y - 6 && p.y < b.y + b.ph && (b.type !== 'casa' || P.homeProgress(S, b.id) >= 1); });
+    const b = P.BUILDINGS.slice().reverse().find(function (b) { return p.x >= b.x && p.x < b.x + b.pw && p.y >= b.y - 6 && p.y < b.y + b.ph && (b.type !== 'casa' || P.homeProgress(S, b.id) >= 1); }) ||
+      ZONES.find(function (z) { return p.x >= z.x && p.x < z.x + z.pw && p.y >= z.y - (z.id === 'molino' ? 30 : 4) && p.y < z.y + z.ph; });
     selected = null;
     if (b) { selectedB = b; showBuilding(b); } else { selectedB = null; $('card').style.display = 'none'; }
   }
