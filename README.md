@@ -38,6 +38,15 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - **Éxodo rural.** Los jóvenes solteros que no están a gusto pueden irse a la ciudad; cuanto más próspero el pueblo, menos se van.
 - «Alexa, ¿cómo está Remedios?» responde aunque ya haya fallecido.
 
+## Fase 2, paso 1: mapa nuevo
+
+- **Pueblo orgánico de 96 × 60 casillas** (antes 60 × 34): calles curvas con nombre (Calle Mayor, Calle de la Iglesia, Callejón del Pozo, Calle del Molino, Calle Real, Calle del Río, Calle Nueva), plaza mayor con soportales, carretera asfaltada, río con puente y álamos, eras y molino en el alto.
+- **Casas entre medianeras** generadas a lo largo de las calles, con su corral o huerto detrás y dirección postal («Calle Mayor, 3»). Cada casa tiene un tope de 3 a 6 vecinos según su tamaño.
+- **El pueblo crece solo:** si un matrimonio no tiene casa propia o una casa se llena, primero buscan una vacía y, si no la hay, se construye una nueva en un solar de las afueras (2 días de obra, con andamios y vecinos ayudando).
+- **Edificios con función:** ayuntamiento (allí se empadronan los que llegan y se hacen papeles los lunes), consultorio (llega una médica; los mayores van a revisión y viven más) y cuartel de la Guardia Civil (llega un guardia que patrulla; hay menos broncas). Cada edificio se reconoce por su forma, y al tocarlo sale su ficha con quién hay dentro.
+- **Cámara:** se arrastra con el dedo, se acerca y aleja con los botones ＋/－ o pellizcando, y ⌂ vuelve a la plaza. Si nadie toca la pantalla durante 20 segundos, la cámara va sola hacia lo último que ha pasado.
+- Los pueblos guardados con el mapa viejo se mudan solos al nuevo: conservan vecinos, casas (h0…h11), obras, familias e hitos.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
@@ -46,7 +55,7 @@ Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están e
 - `?nuevo=1` empieza un pueblo nuevo.
 - Toca a un vecino para ver su ficha.
 
-Modo prueba (no guarda nada): `?demo=12` crea un pueblo con 12 días vividos, `&hora=21` salta a esa hora, `&estacion=invierno`, `&navidad=1`, `&tiempo=lluvia`, `&libro=hitos` abre el libro y `&vecino=paco` abre su ficha.
+Modo prueba (no guarda nada): `?demo=12` crea un pueblo con 12 días vividos, `&hora=21` salta a esa hora, `&estacion=invierno`, `&navidad=1`, `&tiempo=lluvia`, `&libro=hitos` abre el libro, `&vecino=paco` abre su ficha, `&zoom=0.1` muestra el pueblo entero y `&cam=20,12` centra la cámara en esa casilla.
 
 ## Ponerlo en un Echo Show
 
