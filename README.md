@@ -30,6 +30,14 @@ Un pueblo español en miniatura que vive solo en la pantalla de un Echo Show. T�
 - **Aspecto.** Pantalla completa sin franjas, vecinos con más detalle (sombrero de paja, gorro de panadero, bastón…), amanecer y atardecer, estaciones según el calendario real, nieve y Navidad, nubes, charcos, humo de chimeneas, pájaros y bocadillos que no se pisan.
 - Las partidas guardadas antes siguen valiendo, y la skill no necesita cambios: descarga el motor nuevo de la web.
 
+## Ciclo de vida
+
+- **Familias con apellido.** Cada vecino pertenece a una familia (los García, los Moreno…). Los hijos heredan el apellido y el libro tiene una pestaña de Familias con su dinero, sus negocios y sus difuntos.
+- **Nacimientos.** Las parejas casadas y contentas esperan un bebé (se anuncia unos días antes) y las parejas del mismo sexo pueden adoptar. Los bebés heredan rasgos y aspecto de sus padres.
+- **Vejez y muerte.** Un año de juego dura una semana. A los 67 años los vecinos se jubilan, y a partir de los 72 pueden fallecer. Hay entierro en la iglesia con el pueblo de luto, tumba en el cementerio, viudos y herencias de dinero y negocios. Si muere el cura, llega uno nuevo.
+- **Éxodo rural.** Los jóvenes solteros que no están a gusto pueden irse a la ciudad; cuanto más próspero el pueblo, menos se van.
+- «Alexa, ¿cómo está Remedios?» responde aunque ya haya fallecido.
+
 ## Probarlo en el ordenador
 
 Abre `docs/index.html` en el navegador. Funciona sin Alexa: los poderes están en los botones de abajo a la derecha.
