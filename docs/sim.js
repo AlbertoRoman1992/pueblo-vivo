@@ -45,6 +45,7 @@
   // zonas decorativas que también se construyen (no se pueden pisar)
   const MILL_T = { c: 14, r: 1, w: 5, h: 5 };
   const OLIVE_T = { c: 1, r: 30, w: 21, h: 3 };
+  const CEMETERY_T = { c: 34, r: 2, w: 3, h: 7 };
 
   // Niveles del pueblo según su fama, y obras que desbloquea cada nivel
   const LEVELS = [
@@ -98,6 +99,7 @@
     // zonas reservadas para el molino y el olivar
     fillTiles(MILL_T.c, MILL_T.r, MILL_T.w, MILL_T.h, DECOR);
     fillTiles(OLIVE_T.c, OLIVE_T.r, OLIVE_T.w, OLIVE_T.h, DECOR);
+    fillTiles(CEMETERY_T.c, CEMETERY_T.r, CEMETERY_T.w, CEMETERY_T.h, DECOR);
     // fuente y bancos
     fillTiles(FOUNTAIN_T.c, FOUNTAIN_T.r, FOUNTAIN_T.w, FOUNTAIN_T.h, WATER);
     BENCHES_T.forEach(function (p) { fillTiles(p[0], p[1], 2, 1, BENCH); });
@@ -311,6 +313,7 @@
     for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) setRel(S, ids[i], ids[j], Math.floor(rnd(S) * 30) - 10);
     S.villagers.forEach(function (a) { S.villagers.forEach(function (b) { if (a.id < b.id && a.home === b.home) setRel(S, a.id, b.id, 60); }); });
     marry(S, 'paco', 'carmen'); marry(S, 'manolo', 'pili'); marry(S, 'antonio', 'rosa'); marry(S, 'lola', 'fermin');
+    assignFamilies(S);
     setRel(S, 'paco', 'manolo', -25);     // rivalidad de toda la vida
     setRel(S, 'fermin', 'antonio', -20);  // pleito por una linde
     setRel(S, 'puri', 'remedios', -15);   // dos cotillas, un solo pueblo
@@ -405,6 +408,222 @@
     finishBuilds(S);
   }
 
+  // =====================================================================
+  // CICLO DE VIDA: familias, nacimientos, vejez, muerte, herencias y éxodo
+  // =====================================================================
+  const SURNAMES = ['García', 'Fernández', 'López', 'Martín', 'Sánchez', 'Pérez', 'Gómez', 'Ruiz', 'Díaz', 'Moreno', 'Muñoz', 'Álvarez',
+    'Romero', 'Navarro', 'Torres', 'Domínguez', 'Gil', 'Vázquez', 'Serrano', 'Ramos', 'Blanco', 'Molina', 'Ortega', 'Delgado', 'Castro', 'Herrero'];
+  const FAMILY_OF = { paco: 'García', carmen: 'García', dani: 'García', lucia: 'Ruiz', manolo: 'Moreno', pili: 'Moreno', quique: 'Moreno',
+    julian: 'Gil', javi: 'Navarro', remedios: 'Serrano', sara: 'Serrano', irene: 'Romero', elena: 'Torres', tomas: 'Domínguez',
+    antonio: 'López', rosa: 'López', marta: 'López', lola: 'Muñoz', fermin: 'Muñoz', puri: 'Vázquez', nico: 'Vázquez' };
+  const PARENTS_OF = { dani: ['paco', 'carmen'], quique: ['manolo', 'pili'], marta: ['antonio', 'rosa'], sara: ['remedios'], nico: ['puri'] };
+  const BABY_NAMES = {
+    m: ['Martín', 'Lucas', 'Mateo', 'Leo', 'Pablo', 'Álex', 'Manuel', 'Adrián', 'Mario', 'Diego', 'Iker', 'Bruno', 'Marcos', 'Gonzalo', 'Rodrigo', 'Óscar', 'Iván', 'Joaquín', 'Rafa', 'Luis'],
+    f: ['Sofía', 'Martina', 'María', 'Julia', 'Paula', 'Valeria', 'Emma', 'Daniela', 'Carla', 'Alma', 'Olivia', 'Vega', 'Claudia', 'Candela', 'Nerea', 'Aitana', 'Rocío', 'Blanca', 'Ana', 'Pilar']
+  };
+  const MAX_POP = 44;
+
+  function freeSurname(S) {
+    const used = {}; S.villagers.forEach(function (v) { used[v.sur] = 1; });
+    const free = SURNAMES.filter(function (s) { return !used[s]; });
+    return pick(S, free.length ? free : SURNAMES);
+  }
+  function assignFamilies(S) {
+    S.villagers.forEach(function (v) {
+      if (!v.sur) v.sur = FAMILY_OF[v.id] || freeSurname(S);
+      if (!v.parents) v.parents = PARENTS_OF[v.id] || [];
+      if (v.born === undefined) v.born = 1 - v.age * 7;
+    });
+    S.deceased = S.deceased || []; S.preg = S.preg || [];
+    S.stats = S.stats || { births: 0, deaths: 0, left: 0 };
+  }
+  function fullName(v) { return v.sur && v.name.indexOf('Don ') !== 0 ? v.name + ' ' + v.sur : v.name; }
+  function childrenOf(S, v) { return S.villagers.filter(function (o) { return (o.parents || []).indexOf(v.id) >= 0; }); }
+
+  // Saca a un vecino del pueblo y limpia todas las referencias a él
+  function removeVillager(S, v, died) {
+    S.villagers = S.villagers.filter(function (o) { return o !== v; });
+    S.villagers.forEach(function (o) {
+      if (o.partner === v.id) { o.partner = null; if (died && o.married) { o.widow = true; remember(o, 'luto', v.id, 0, S.time); } o.married = false; }
+      if (o.crush === v.id) o.crush = null;
+      if (o.crushOut === v.id) o.crushOut = null;
+    });
+    S.debts = S.debts.filter(function (d) { return d.f !== v.id && d.t !== v.id; });
+    S.preg = (S.preg || []).filter(function (p) { return p.a !== v.id && p.b !== v.id; });
+  }
+
+  function heirsOf(S, v) {
+    const kids = childrenOf(S, v);
+    if (kids.length) return kids;
+    const partner = v.partner && byId(S, v.partner);
+    if (partner) return [partner];
+    const house = S.villagers.filter(function (o) { return o.home === v.home && o !== v; });
+    if (house.length) return house;
+    return S.villagers.filter(function (o) { return o.sur === v.sur && o !== v; });
+  }
+  function inherit(S, v) {
+    const heirs = heirsOf(S, v), parts = [];
+    if (heirs.length && v.money > 5) {
+      const share = v.money / heirs.length;
+      heirs.forEach(function (h) { h.money += share; remember(h, 'herencia', v.id, Math.round(share), S.time); });
+      parts.push((heirs.length === 1 ? heirs[0].name + ' hereda ' : 'sus herederos se reparten ') + euros(v.money));
+    }
+    v.money = 0;
+    // negocios: los hereda la pareja, un hijo adulto, alguien del oficio o, si no, quien pueda quedárselo
+    Object.keys(S.biz).forEach(function (k) {
+      const biz = S.biz[k];
+      if (biz.owner !== v.id) return;
+      const job = { panaderia: 'panadero', bar: 'tabernero', tienda: 'costurero' }[k];
+      const cand = [v.partner && byId(S, v.partner)].concat(childrenOf(S, v).filter(isAdult).sort(function (a, b) { return b.age - a.age; }))
+        .concat(adults(S).filter(function (o) { return o.job === job; })).concat(adults(S).filter(function (o) { return o.job !== 'cura'; }))
+        .filter(function (o) { return o && o !== v && isAdult(o); });
+      const nu = cand[0] || null;
+      biz.owner = nu ? nu.id : null;
+      if (nu) {
+        if (k !== 'tienda' && nu.job !== job && nu.job !== 'jubilado') nu.job = job;
+        const where = BY_ID[k] ? BY_ID[k].name : k;
+        parts.push(nu.name + ' se queda con ' + where);
+        log(S, nu.name + ' se queda al frente de ' + where + ' tras la muerte de ' + v.name, '🔑 ' + nu.name + ' lleva ahora ' + where, 3, [nu.id, v.id]);
+      }
+    });
+    return parts;
+  }
+
+  function die(S, v) {
+    const day = dayOf(S);
+    S.deceased = S.deceased || [];
+    S.deceased.push({ id: v.id, name: v.name, sur: v.sur, sex: v.sex, age: v.age, d: day, job: jobName(v) });
+    if (S.deceased.length > 40) S.deceased.shift();
+    const inh = inherit(S, v);
+    const partner = v.partner && byId(S, v.partner);
+    // los amigos lo sienten; los enemigos, menos
+    S.villagers.forEach(function (o) {
+      if (o === v) return;
+      const r = getRel(S, o.id, v.id);
+      if (r > 30 || o.partner === v.id || (o.parents || []).indexOf(v.id) >= 0) { o.needs.social = clamp(o.needs.social + 30, 0, 100); remember(o, 'luto', v.id, 0, S.time); }
+    });
+    removeVillager(S, v, true);
+    S.stats.deaths++;
+    S.funeral = { from: Math.floor(S.time / DAY) * DAY + 11 * 60, until: Math.floor(S.time / DAY) * DAY + 12.5 * 60, name: v.name };
+    const tail = partner ? '. Deja ' + g(partner, 'viudo', 'viuda') + ' a ' + partner.name : '';
+    log(S, v.name + ' ha fallecido a los ' + v.age + ' años' + tail + (inh.length ? '; ' + inh.join(' y ') : '') + '. A las once es el entierro, y el pueblo entero irá a despedir' + g(v, 'lo', 'la'),
+      '🕯️ Fallece ' + v.name + ' (' + v.age + ' años)', 4, [v.id]);
+    milestone(S, '🕯️', 'Fallece ' + fullName(v) + ' a los ' + v.age + ' años' + tail);
+    if (v.job === 'cura') stranger(S, null, 'cura');
+  }
+
+  function birth(S, a, b) {
+    const day = dayOf(S);
+    const sex = rnd(S) < 0.5 ? 'm' : 'f';
+    const used = S.villagers.map(function (v) { return v.name; }).concat((S.deceased || []).map(function (d) { return d.name; }));
+    let name = null;
+    S.nameQueue = S.nameQueue || [];
+    if (S.nameQueue.length) name = capital(S.nameQueue.shift());
+    if (!name) { const opts = BABY_NAMES[sex].filter(function (n) { return used.indexOf(n) < 0; }); name = opts.length ? pick(S, opts) : pick(S, BABY_NAMES[sex]); }
+    const father = a.sex === 'm' ? a : b.sex === 'm' ? b : a;
+    const home = a.home, bld = building(home);
+    const palette = ['#e06666', '#6fa8dc', '#93c47d', '#ffd966', '#c27ba0', '#76a5af', '#f6b26b', '#8e7cc3'];
+    const inheritT = pick(S, a.traits.concat(b.traits));
+    let t2 = pick(S, ALL_TRAITS); if (t2 === inheritT) t2 = 'alegre';
+    const id = 'v' + (S.nextId++);
+    const v = {
+      id: id, name: name, sur: father.sur, sex: sex, age: 0, job: 'niño', traits: inheritT === t2 ? [inheritT] : [inheritT, t2], home: home, money: 0,
+      partner: null, married: false, crush: null, stock: 0, mem: [],
+      look: { skin: pick(S, [a.look.skin, b.look.skin]), hair: pick(S, [a.look.hair, b.look.hair]), shirt: pick(S, palette), pants: pick(S, ['#3a3a52', '#2f3a55', '#5b4636']) },
+      needs: { hunger: 20, energy: 80, social: 30 }, x: bld.door.x, y: bld.door.y, path: [], inside: home, act: 'en casa', actPlace: home, actUntil: S.time + 60,
+      bubble: null, offset: Math.floor(rnd(S) * 40) - 20, days: {}, parents: [a.id, b.id], born: day
+    };
+    S.villagers.push(v);
+    S.villagers.forEach(function (o) { if (o.id !== id) setRel(S, id, o.id, (v.parents.indexOf(o.id) >= 0 || o.home === home) ? 70 : 0); });
+    S.stats.births++;
+    addFame(S, 8);
+    const adopt = a.sex === b.sex;
+    log(S, adopt ? a.name + ' y ' + b.name + ' han adoptado a ' + g(v, 'un niño', 'una niña') + ': ' + g(v, 'se llama ', 'se llama ') + name
+      : '¡Ha nacido ' + name + ', ' + g(v, 'el hijo', 'la hija') + ' de ' + a.name + ' y ' + b.name + '! Medio pueblo ha pasado por casa a conocer' + g(v, 'lo', 'la'),
+      '👶 ' + (adopt ? 'Llega ' : 'Nace ') + name + ' ' + v.sur, 4, [a.id, b.id]);
+    milestone(S, '👶', (adopt ? 'Llega a la familia ' : 'Nace ') + name + ' ' + v.sur + ', ' + g(v, 'hijo', 'hija') + ' de ' + a.name + ' y ' + b.name);
+    return v;
+  }
+
+  function lifeDay(S, day, birthday) {
+    if (!S.stats) assignFamilies(S);
+    // cumpleaños: jubilaciones y muertes por la edad
+    if (birthday) {
+      S.villagers.slice().forEach(function (v) {
+        if (v.age >= 67 && ['jubilado', 'cura', 'niño'].indexOf(v.job) < 0) {
+          const old = jobName(v); v.job = 'jubilado';
+          log(S, v.name + ' se jubila después de toda una vida de ' + old, '🎂 ' + v.name + ' se jubila', 2, [v.id]);
+        }
+        if (v.age >= 72 && rnd(S) < Math.min(0.9, (v.age - 70) * 0.03)) die(S, v);
+      });
+    }
+    // partos y adopciones que tocan hoy
+    S.preg = (S.preg || []).filter(function (p) {
+      if (p.due > day) return true;
+      const a = byId(S, p.a), b = byId(S, p.b);
+      if (a && b) birth(S, a, b);
+      return false;
+    });
+    // nuevas parejas que esperan un bebé
+    if (S.villagers.length < MAX_POP) {
+      const seen = {};
+      S.villagers.forEach(function (a) {
+        const b = a.partner && byId(S, a.partner);
+        if (!b || !a.married || seen[a.id] || !isAdult(a) || !isAdult(b)) return;
+        seen[a.id] = seen[b.id] = 1;
+        if (S.preg.some(function (p) { return p.a === a.id || p.b === a.id; })) return;
+        const kidsHome = S.villagers.filter(function (o) { return o.home === a.home && !isAdult(o); }).length;
+        if (kidsHome >= 3) return;
+        const last = Math.max.apply(null, [-99].concat(childrenOf(S, a).map(function (k) { return k.born; })));
+        if (day - last < 12) return;
+        const mixed = a.sex !== b.sex, mother = mixed ? (a.sex === 'f' ? a : b) : null;
+        if (mixed && (mother.age < 20 || mother.age > 44)) return;
+        if (!mixed && (a.age > 50 || b.age > 50)) return;
+        const happy = (moodScore(a) + moodScore(b)) / 2 > 45 && getRel(S, a.id, b.id) > 50;
+        if (!happy || rnd(S) > (mixed ? 0.05 : 0.015)) return;
+        const due = day + (mixed ? 6 : 3);
+        S.preg.push({ a: mixed ? mother.id : a.id, b: mixed ? (mother === a ? b.id : a.id) : b.id, due: due });
+        if (mixed) log(S, mother.name + ' está embarazada: ' + (mother === a ? b.name : a.name) + ' y ella esperan un bebé, y ' + (has(a, 'cotilla') || has(b, 'cotilla') ? 'ya lo sabe todo el pueblo' : 'lo cuentan a quien quiera oírlo'),
+          '🤰 ' + a.name + ' y ' + b.name + ' esperan un bebé', 3, [a.id, b.id]);
+        else log(S, a.name + ' y ' + b.name + ' han empezado los papeles para adoptar', '📝 ' + a.name + ' y ' + b.name + ' quieren adoptar', 2, [a.id, b.id]);
+      });
+    }
+    // éxodo rural: jóvenes sin pareja que no están a gusto se van a la ciudad
+    if (S.villagers.length > 14) {
+      S.villagers.slice().forEach(function (v) {
+        if (!isAdult(v) || v.age > 32 || v.partner || v.job === 'cura') return;
+        if (S.biz && Object.keys(S.biz).some(function (k) { return S.biz[k].owner === v.id; })) return;
+        const unhappy = moodScore(v) < 42 || v.money < 15;
+        const p = (unhappy ? 0.04 : 0.004) * (S.level >= 4 ? 0.4 : S.level >= 2 ? 0.7 : 1);
+        if (rnd(S) < p) {
+          const dest = pick(S, ['Madrid', 'Barcelona', 'Valencia', 'Bilbao', 'Sevilla', 'Zaragoza']);
+          removeVillager(S, v, false);
+          S.stats.left++;
+          log(S, v.name + ' ha hecho las maletas y se ha ido a vivir a ' + dest + '. «Aquí no hay futuro», dice. En la plaza no se habla de otra cosa',
+            '🚌 ' + v.name + ' se va a ' + dest, 3, [v.id]);
+          milestone(S, '🚌', v.name + ' se marcha a ' + dest + ' a buscarse la vida');
+        }
+      });
+    }
+  }
+  function findDeceased(S, name) {
+    const n = norm(name);
+    if (!n) return null;
+    return (S.deceased || []).slice().reverse().find(function (d) { const k = norm(d.name); return k === n || k.indexOf(n) === 0 || n.indexOf(k) === 0; }) || null;
+  }
+  function describeDeceased(S, d) {
+    return d.name + ' ' + (d.sur || '') + ' murió el día ' + d.d + ', a los ' + d.age + ' años. Descanse en paz.';
+  }
+  function families(S) {
+    const map = {};
+    S.villagers.forEach(function (v) { (map[v.sur] = map[v.sur] || []).push(v); });
+    return Object.keys(map).map(function (k) {
+      const m = map[k].slice().sort(function (a, b) { return b.age - a.age; });
+      return { sur: k, members: m, money: Math.round(m.reduce(function (s, v) { return s + v.money; }, 0)), dead: (S.deceased || []).filter(function (d) { return d.sur === k; }).length,
+        biz: Object.keys(S.biz).filter(function (b) { return S.biz[b].owner && m.some(function (v) { return v.id === S.biz[b].owner; }); }) };
+    }).sort(function (a, b) { return b.members.length - a.members.length || b.money - a.money; });
+  }
+
   // ---------- Dinero ----------
   function pay(S, from, toId, amt) {
     if (!from || from.money < amt) return false;
@@ -454,6 +673,8 @@
     const wake = (v.age > 70 ? 7 : 7.5) + o;
     const hh = h < 5 ? h + 24 : h;
     if (hh >= sleepStart || h < wake) return { act: 'dormir', place: v.home, dur: 30 };
+    if (v.age < 4) return { act: 'en casa', place: v.home, dur: 60 };
+    if (S.funeral && S.time >= S.funeral.from && S.time < S.funeral.until && (isAdult(v) || v.age >= 10) && (v.offset + 40) % 4 !== 0) return { act: 'entierro', place: 'iglesia', dur: 60 };
     if (fiestaOn(S)) return { act: 'fiesta', place: 'plaza', dur: 30 };
     if (S.time < S.rondaUntil && isAdult(v)) return { act: 'tomar algo', place: 'bar', dur: 40, free: true };
     if (wd === 6 && h >= 12 && h < 13 && (has(v, 'religioso') || v.job === 'cura' || rnd(S) < 0.3)) return { act: 'misa', place: 'iglesia', dur: 60 };
@@ -695,6 +916,7 @@
       }
       v.days = { trabajo: v.days.trabajo };
     });
+    lifeDay(S, day, day % 7 === 1);
     townDay(S);
   }
 
@@ -709,7 +931,7 @@
 
   // Un suceso pequeño casi cada día, para que siempre haya algo que contar
   function dailyStory(S, day) {
-    const ad = adults(S), kids = S.villagers.filter(function (v) { return !isAdult(v); });
+    const ad = adults(S), kids = S.villagers.filter(function (v) { return !isAdult(v) && v.age >= 5; });
     const cot = S.villagers.filter(function (v) { return has(v, 'cotilla'); });
     const opts = [];
     function add(key, fn) { if (!S.flags['s_' + key] || day - S.flags['s_' + key] >= 6) opts.push(function () { S.flags['s_' + key] = day; fn(); }); }
@@ -1051,7 +1273,7 @@
     return speech;
   }
 
-  function stranger(S, givenName) {
+  function stranger(S, givenName, job) {
     const used = S.villagers.map(function (v) { return v.name; });
     const opts = STRANGER_NAMES.filter(function (n) { return used.indexOf(n[0]) < 0; });
     const nm = opts.length ? pick(S, opts) : ['Forastero ' + S.nextId, 'm'];
@@ -1064,13 +1286,14 @@
     const palette = ['#e06666', '#6fa8dc', '#93c47d', '#ffd966', '#c27ba0', '#76a5af'];
     const id = 'v' + (S.nextId++);
     const v = {
-      id: id, name: name, sex: sex, age: 22 + Math.floor(rnd(S) * 40), job: pick(S, STRANGER_JOBS), traits: [t1, t2],
+      id: id, name: name, sur: freeSurname(S), sex: job === 'cura' ? 'm' : sex, age: (job === 'cura' ? 35 : 22) + Math.floor(rnd(S) * 30), job: job || pick(S, STRANGER_JOBS), traits: job === 'cura' ? ['religioso', t1 === 'religioso' ? 'tímido' : t1] : [t1, t2],
       home: homes[0].id, money: 80 + Math.floor(rnd(S) * 200), partner: null, married: false, crush: null, stock: 0, mem: [],
       look: { skin: pick(S, ['#f0c29a', '#e8b48a', '#c98d63', '#8d5a3b']), hair: pick(S, ['#2a1a14', '#a0522d', '#d4a017', '#111111']), shirt: pick(S, palette), pants: '#3a3a52' },
       needs: { hunger: 40, energy: 70, social: 70 },
       x: ENTRY.c * T + T / 2, y: ENTRY.r * T + T / 2, path: [], inside: null, act: 'pasear', actPlace: 'plaza', actUntil: S.time + 60,
-      bubble: { text: '¡Hola! ¿Es aquí Pueblo Vivo?', until: S.time + 12 }, offset: Math.floor(rnd(S) * 40) - 20, days: {}
+      bubble: { text: '¡Hola! ¿Es aquí Pueblo Vivo?', until: S.time + 12 }, offset: Math.floor(rnd(S) * 40) - 20, days: {}, parents: [], born: dayOf(S)
     };
+    if (v.job === 'cura') { v.name = 'Don ' + v.name; v.look.shirt = '#1d1d24'; v.look.pants = '#1d1d24'; }
     const p = placeTile(S, 'plaza', v);
     v.path = findPath(S, ENTRY.c, ENTRY.r, p.c, p.r) || [];
     S.villagers.push(v);
@@ -1133,6 +1356,7 @@
       pop: S.villagers.length, happy: Math.round(happiness(S)), harvest: Math.round(S.harvest),
       wealth: Math.round(adults(S).reduce(function (s, v) { return s + v.money; }, 0)),
       couples: S.villagers.filter(function (v) { return v.partner; }).length / 2,
+      stats: S.stats || { births: 0, deaths: 0, left: 0 }, kids: S.villagers.filter(function (v) { return !isAdult(v); }).length,
       projects: PROJECTS.map(function (p) {
         const b = S.builds[p.id];
         return { id: p.id, name: p.name, icon: p.icon, level: p.level, progress: buildProgress(S, p.id),
@@ -1149,7 +1373,8 @@
     'comprar pan': 'comprando el pan', 'tomar algo': 'tomando algo en el bar', pasear: 'paseando por la plaza', charlar: 'charlando en el bar',
     descansar: 'descansando', siesta: 'echándose la siesta', comer: 'comiendo', misa: 'en misa', fiesta: 'de fiesta en la plaza', jugar: 'jugando',
     'ir al cole': 'en la escuela', 'hacer la compra': 'haciendo la compra en la tienda', 'atender la tienda': 'atendiendo la tienda',
-    'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra'
+    'comprar el periódico': 'comprando el periódico', 'trabajar en la obra': 'echando una mano en la obra',
+    'en casa': 'en casa con la familia', entierro: 'en el entierro'
   };
   function moodOf(v) {
     const m = moodScore(v);
@@ -1169,9 +1394,14 @@
       if (m.k === 'celos' && o) notes.push('Tiene celos de ' + o.name);
       if (m.k === 'rencor' && o) notes.push('Guarda rencor a ' + o.name);
       if (m.k === 'loteria') notes.push(m.a ? 'Esconde un premio de lotería' : 'Le tocó la lotería');
+      if (m.k === 'luto' && S.time - m.t < DAY * 7) { const d = (S.deceased || []).find(function (x) { return x.id === m.o; }); if (d) notes.push('De luto por ' + d.name); }
+      if (m.k === 'herencia' && S.time - m.t < DAY * 10) { const d = (S.deceased || []).find(function (x) { return x.id === m.o; }); if (d) notes.push('Heredó ' + euros(m.a) + ' de ' + d.name); }
     });
+    if (S.preg && S.preg.some(function (p) { return p.a === v.id || p.b === v.id; })) notes.unshift('Espera un bebé');
     const partner = v.partner && byId(S, v.partner);
+    const parents = (v.parents || []).map(function (id) { const p = byId(S, id); if (p) return p.name; const d = (S.deceased || []).find(function (x) { return x.id === id; }); return d ? d.name + ' †' : null; }).filter(Boolean);
     return {
+      fullName: fullName(v), sur: v.sur || '', parents: parents, kids: childrenOf(S, v).map(function (k) { return k.name; }), widow: !!v.widow && !v.partner,
       name: v.name, age: v.age, job: jobName(v), traits: v.traits, act: ACTS[v.act] || v.act, mood: moodOf(v),
       money: isAdult(v) ? Math.round(v.money) : null,
       partner: partner ? partner.name : null,
@@ -1186,6 +1416,9 @@
     const parts = [s.name + ' tiene ' + s.age + ' años y es ' + s.job + '.'];
     parts.push('Ahora está ' + s.act + ', y está ' + (s.mood === 'de bajón' ? 'de bajón' : s.mood === 'contento' ? g(v, 'contento', 'contenta') : 'tan normal') + '.');
     if (s.partner) parts.push(v.married ? 'Está ' + g(v, 'casado', 'casada') + ' con ' + s.partner + '.' : 'Sale con ' + s.partner + '.');
+    else if (s.widow) parts.push('Es ' + g(v, 'viudo', 'viuda') + '.');
+    const kids = childrenOf(S, v);
+    if (kids.length) parts.push('Tiene ' + (kids.length === 1 ? g(kids[0], 'un hijo, ', 'una hija, ') : kids.length + (kids.every(fem) ? ' hijas: ' : ' hijos: ')) + s.kids.join(', ').replace(/, ([^,]*)$/, ' y $1') + '.');
     if (s.money !== null) parts.push(s.money < 12 ? 'Anda sin un duro.' : s.money > 1000 ? 'Tiene el riñón bien cubierto.' : 'Tiene unos ' + euros(Math.round(s.money / 10) * 10) + ' ahorrados.');
     s.notes.slice(0, 2).forEach(function (n) { parts.push(n.replace(' (en secreto)', ', aunque no lo sabe nadie') + '.'); });
     if (s.enemy) parts.push('Y no traga a ' + s.enemy + '.');
@@ -1231,6 +1464,7 @@
       S.milestones = [{ d: 1, t: 0, i: '⛪', text: 'Se funda Pueblo Vivo' }];
     }
     S.builds = S.builds || {}; S.milestones = S.milestones || []; S.level = S.level || 1;
+    assignFamilies(S);   // apellidos y familias para pueblos de antes del ciclo de vida
     return S;
   }
 
@@ -1243,6 +1477,8 @@
     clock: clock, hourOf: hourOf, byId: byId, jobName: jobName, isMarket: isMarket, findPath: findPath, passable: passable,
     // progreso (fase 1.5)
     LEVELS: LEVELS, PROJECTS: PROJECTS, MILL: MILL_T, OLIVE: OLIVE_T, LANE_ROW: LANE_ROW, ROAD_ROWS: ROAD_ROWS,
+    // ciclo de vida
+    CEMETERY: CEMETERY_T, families: families, findDeceased: findDeceased, describeDeceased: describeDeceased, fullName: fullName,
     isBuilt: isBuilt, buildProgress: buildProgress, townStatus: townStatus, fiestaOn: fiestaOn, moodScore: moodScore, dayOf: dayOf
   };
 });

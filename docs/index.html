@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
-<script src="sim.js?v=3"></script>
+<script src="sim.js?v=4"></script>
 <style>
   :root { --ink: #2b1d14; --paper: #f6ead2; --paper-2: #efdcb8; --paper-3: #e2c99a; --gold: #e8b54a; --red: #b8452c; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -137,7 +137,7 @@
         <button class="tab" data-tab="pueblo">Pueblo</button>
         <button class="tab" data-tab="hitos">Hitos</button>
         <button class="tab" data-tab="cronica">Crónica</button>
-        <button class="tab" data-tab="vecinos">Vecinos</button>
+        <button class="tab" data-tab="vecinos">Familias</button>
         <button class="close" id="book-close">✕</button>
       </header>
       <div class="body" id="book-body"></div>
@@ -215,7 +215,7 @@
   let snowy = 0;
   function backgroundKey() {
     const b = P.PROJECTS.map(function (p) { return p.id + Math.floor(P.buildProgress(S, p.id) * 10); }).join('');
-    return VW + 'x' + VH + JSON.stringify(S.houses) + b + (snowy > .5 ? 'n' : '');
+    return VW + 'x' + VH + JSON.stringify(S.houses) + b + (snowy > .5 ? 'n' : '') + '|' + (S.deceased || []).length;
   }
 
   function paintBackground() {
@@ -297,6 +297,7 @@
       }
     }
     drawMillBody(c);
+    drawCemetery(c);
     P.BUILDINGS.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (b) {
       if (b.lot) drawLot(c, b); else house(c, b);
     });
@@ -424,6 +425,26 @@
     rect(c, x + w - 6, y + h - 3, 6, 3, '#b5533a'); rect(c, x + w - 5, y + h - 5, 4, 2, '#c7643f');
     rect(c, x + 1, y + h - 3, 5, 3, '#cfcfcf');
   }
+  // Cementerio junto a la iglesia: una tumba por cada vecino que se ha ido
+  function drawCemetery(c) {
+    const C = P.CEMETERY, x = C.c * T, y = C.r * T, w = C.w * T, h = C.h * T;
+    rect(c, x, y, w, h, shade(PAL.grass, -.08));
+    rect(c, x, y, w, 2, '#e8e0cc'); rect(c, x, y, 2, h, '#e8e0cc'); rect(c, x + w - 2, y, 2, h, '#e8e0cc');
+    rect(c, x, y + h - 2, w / 2 - 4, 2, '#e8e0cc'); rect(c, x + w / 2 + 4, y + h - 2, w / 2 - 4, 2, '#e8e0cc');
+    rect(c, x + w / 2 - 4, y + h - 2, 8, 1, '#3a3030');   // verja
+    const n = Math.min(10, (S.deceased || []).length);
+    for (let i = 0; i < n; i++) {
+      const gx = x + 5 + (i % 2) * 11, gy = y + 9 + Math.floor(i / 2) * 9;
+      rect(c, gx - 1, gy + 3, 7, 3, '#9a8a70');
+      if (i % 3 === 1) { rect(c, gx + 2, gy - 3, 1, 6, '#bdb3a0'); rect(c, gx, gy - 1, 5, 1, '#bdb3a0'); }
+      else { rect(c, gx, gy - 2, 5, 5, '#c9c0ae'); rect(c, gx, gy - 2, 5, 1, '#ddd5c4'); }
+      rect(c, gx + (i % 2 ? 4 : 0), gy + 2, 1, 1, ['#e8443a', '#f6d34a', '#e98ab0'][i % 3]);
+    }
+    // cipreses
+    [[x + 3, y + h - 3], [x + w - 4, y + h - 3], [x + 3, y + 10]].forEach(function (p) {
+      rect(c, p[0] - 1, p[1] - 15, 3, 15, '#2f4a2a'); rect(c, p[0], p[1] - 17, 1, 2, '#2f4a2a'); rect(c, p[0], p[1] - 13, 1, 10, '#3d5c36');
+    });
+  }
   function drawMillBody(c) {
     const M = P.MILL, p = P.buildProgress(S, 'molino'), done = P.isBuilt(S, 'molino');
     const cx = (M.c + 2.5) * T, base = (M.r + M.h) * T - 2;
@@ -493,13 +514,14 @@
   // ---------- Vecinos ----------
   const lastPos = {};
   function drawPerson(c, v, x, y, t, face, walking, outdoors) {
-    const L = v.look, small = v.age < 14, old = v.age >= 70, hs = hash(v.id);
+    let L = v.look; const small = v.age < 14, old = v.age >= 70, hs = hash(v.id);
     const legH = small ? 2 : 3, torso = small ? 4 : 5;
     const ph = walking ? Math.floor(t / 130) % 4 : 0;
     const lift1 = walking && ph === 1 ? 1 : 0, lift2 = walking && ph === 3 ? 1 : 0;
     const bob = walking && (ph === 1 || ph === 3) ? 1 : 0;
     rect(c, x - 3, y, 7, 2, 'rgba(0,0,0,.22)');
     const cura = v.job === 'cura', skirt = v.sex === 'f' && !small && !cura;
+    if (v.act === 'entierro') L = { skin: L.skin, hair: L.hair, shirt: '#2b2b33', pants: '#1f1f26' };   // de luto
     rect(c, x - 2, y - legH, 2, legH - lift1, L.pants); rect(c, x + 1, y - legH, 2, legH - lift2, L.pants);
     rect(c, x - 2, y - 1 - lift1, 2, 1, '#2a2018'); rect(c, x + 1, y - 1 - lift2, 2, 1, '#2a2018');
     const ty = y - legH - torso - bob;
@@ -837,10 +859,13 @@
     const s = P.villagerSummary(S, v), el = $('card'), mood = Math.round(P.moodScore(v));
     const moodIc = mood > 68 ? '😊' : mood > 42 ? '😐' : '😟';
     const html = '<button class="x" id="card-x">✕</button><div class="head"><span id="card-pic"></span><div><h2>' + esc(s.name) + '</h2>' +
+      (s.sur && s.name.indexOf('Don ') !== 0 ? '<div class="sub">de los ' + esc(s.sur) + '</div>' : '') +
       '<div class="sub">' + s.age + ' años · ' + esc(s.job) + (s.money !== null ? ' · ' + s.money + ' €' : '') + '</div></div></div>' +
       '<div class="row">Ahora: ' + esc(s.act) + '</div>' +
       '<div class="mood">' + moodIc + '<div class="bar"><i style="width:' + mood + '%"></i></div></div>' +
-      (s.partner ? '<div class="row">💕 ' + s.partnerLabel + ': ' + esc(s.partner) + '</div>' : '') +
+      (s.partner ? '<div class="row">💕 ' + s.partnerLabel + ': ' + esc(s.partner) + '</div>' : s.widow ? '<div class="row">🖤 ' + (v.sex === 'f' ? 'Viuda' : 'Viudo') + '</div>' : '') +
+      (s.parents.length && v.age < 30 ? '<div class="row">👪 ' + (v.sex === 'f' ? 'Hija' : 'Hijo') + ' de ' + esc(s.parents.join(' y ')) + '</div>' : '') +
+      (s.kids.length ? '<div class="row">👶 ' + (s.kids.length === 1 ? 'Su crío: ' : 'Sus críos: ') + esc(s.kids.join(', ')) + '</div>' : '') +
       (s.friend ? '<div class="row">🤝 Mejor amistad: ' + esc(s.friend) + '</div>' : '') +
       (s.enemy ? '<div class="row">😤 No traga a: ' + esc(s.enemy) + '</div>' : '') +
       s.notes.map(function (n) { return '<div class="note">· ' + esc(n) + '</div>'; }).join('') +
@@ -874,6 +899,8 @@
         '<div class="stat"><b>' + st.happy + '%</b><span>ánimo</span></div>' +
         '<div class="stat"><b>' + st.harvest + '%</b><span>cosecha</span></div>' +
         '<div class="stat"><b>' + st.couples + '</b><span>parejas</span></div>' +
+        '<div class="stat"><b>' + st.kids + '</b><span>críos</span></div>' +
+        '<div class="stat"><b>👶 ' + st.stats.births + ' · ✝️ ' + st.stats.deaths + '</b><span>nacidos y fallecidos</span></div>' +
         '<div class="stat"><b>' + st.wealth.toLocaleString('es-ES') + ' €</b><span>en los bolsillos</span></div></div>';
       h += '<h3>Obras del pueblo</h3>';
       const lbl = { hecho: '✅ Hecho', obras: '🚧 En obras', pendiente: '⏳ Próximamente', bloqueado: '🔒 ' };
@@ -891,10 +918,16 @@
       const evs = S.events.filter(function (e) { return e.imp >= 2; }).slice(-40).reverse();
       h += evs.length ? '<ul class="tl">' + evs.map(function (e) { return '<li><span class="d">' + dayTime(e.t) + '</span><span>' + esc(cap(e.text)) + (/[.!?…»]$/.test(e.text) ? '' : '.') + '</span></li>'; }).join('') + '</ul>' : '<p class="empty">Todavía no ha pasado nada digno de contarse.</p>';
     } else if (bookTab === 'vecinos') {
-      h += '<div class="people">' + S.villagers.map(function (v) {
-        const m = P.moodScore(v);
-        return '<div class="person" data-id="' + v.id + '"><span class="pp"></span><b>' + esc(v.name) + '</b><span>' + esc(P.jobName(v)) + ' ' + (m > 68 ? '😊' : m > 42 ? '😐' : '😟') + '</span></div>';
-      }).join('') + '</div>';
+      const BIZ = { panaderia: '🥖 la panadería', bar: '🍺 el bar', tienda: '🛒 la tienda' };
+      P.families(S).forEach(function (f) {
+        h += '<h3>Los ' + esc(f.sur) + ' <span style="font-size:.75em;opacity:.8">· ' + f.members.length + (f.members.length === 1 ? ' miembro' : ' miembros') + ' · ' + f.money.toLocaleString('es-ES') + ' €' +
+          (f.biz.length ? ' · ' + f.biz.map(function (b) { return BIZ[b] || b; }).join(', ') : '') + (f.dead ? ' · ✝️ ' + f.dead : '') + '</span></h3>';
+        h += '<div class="people">' + f.members.map(function (v) {
+          const m = P.moodScore(v);
+          return '<div class="person" data-id="' + v.id + '"><span class="pp"></span><b>' + esc(v.name) + '</b><span>' + v.age + ' años · ' + esc(P.jobName(v)) + ' ' + (m > 68 ? '😊' : m > 42 ? '😐' : '😟') + '</span></div>';
+        }).join('') + '</div>';
+      });
+      if ((S.deceased || []).length) h += '<h3>✝️ En memoria</h3><ul class="tl">' + S.deceased.slice().reverse().map(function (d) { return '<li><span class="d">Día ' + d.d + '</span><span>' + esc(d.name + ' ' + (d.sur || '')) + ', ' + d.age + ' años</span></li>'; }).join('') + '</ul>';
     }
     if (refresh && h === bookHtml) return;
     const keep = refresh ? body.scrollTop : 0;
@@ -992,7 +1025,7 @@
       const v = P.findVillager(S, msg.name);
       closeBook();
       if (v) { selected = v.id; showCard(v.id); speak(P.describeVillager(S, v)); }
-      else speak('No conozco a nadie que se llame ' + (msg.name ? msg.name.charAt(0).toUpperCase() + msg.name.slice(1) : 'así') + ' en el pueblo.');
+      else { const d = P.findDeceased(S, msg.name); speak(d ? P.describeDeceased(S, d) : 'No conozco a nadie que se llame ' + (msg.name ? msg.name.charAt(0).toUpperCase() + msg.name.slice(1) : 'así') + ' en el pueblo.'); }
     }
   }
 
